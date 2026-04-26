@@ -207,7 +207,7 @@ export function createAdminRouter(): Router {
     }
 
     try {
-      impersonationService.revokeToken(user.id, user.email, tokenId, req.ip)
+      impersonationService.revokeToken(user.id, user.email, user.tenantId, tokenId, req.ip)
       res.status(200).json({ success: true })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
@@ -402,6 +402,7 @@ export function createAdminRouter(): Router {
         id,
         admin.id,
         admin.email,
+        admin.tenantId,
         req.ip
       )
 

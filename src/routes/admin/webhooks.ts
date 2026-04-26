@@ -25,7 +25,7 @@ export function createWebhookAdminRouter(): Router {
       const { id } = req.params
       const admin = (req as AuthenticatedRequest).user!
       
-      const webhook = await webhookService.rotateSecret(id, { id: admin.id, email: admin.email })
+      const webhook = await webhookService.rotateSecret(id, { id: admin.id, email: admin.email, tenantId: admin.tenantId })
       
       res.json({
         success: true,
@@ -52,7 +52,7 @@ export function createWebhookAdminRouter(): Router {
       const { id } = req.params
       const admin = (req as AuthenticatedRequest).user!
 
-      await webhookService.revokePreviousSecret(id, { id: admin.id, email: admin.email })
+      await webhookService.revokePreviousSecret(id, { id: admin.id, email: admin.email, tenantId: admin.tenantId })
       
       res.json({
         success: true,

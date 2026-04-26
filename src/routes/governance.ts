@@ -23,6 +23,7 @@ router.post('/slash-requests', requireUserAuth, async (req: Request, res: Respon
     const request = createSlashRequest(req.body)
 
     await auditLogService.logAction({
+      tenantId: actor.tenantId,
       actorId: actor.id,
       actorEmail: actor.email,
       action: AuditAction.SLASH_REQUEST_CREATED,
@@ -39,6 +40,7 @@ router.post('/slash-requests', requireUserAuth, async (req: Request, res: Respon
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     await auditLogService.logAction({
+      tenantId: actor.tenantId,
       actorId: actor.id,
       actorEmail: actor.email,
       action: AuditAction.SLASH_REQUEST_CREATED,
@@ -68,6 +70,7 @@ router.post('/slash-requests/:id/votes', requireUserAuth, async (req: Request, r
     }
 
     await auditLogService.logAction({
+      tenantId: actor.tenantId,
       actorId: actor.id,
       actorEmail: actor.email,
       action: AuditAction.SLASH_VOTE_CAST,
@@ -86,6 +89,7 @@ router.post('/slash-requests/:id/votes', requireUserAuth, async (req: Request, r
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     await auditLogService.logAction({
+      tenantId: actor.tenantId,
       actorId: actor.id,
       actorEmail: actor.email,
       action: AuditAction.SLASH_VOTE_CAST,

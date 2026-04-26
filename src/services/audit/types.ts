@@ -39,6 +39,7 @@ export interface AuditLogInput {
   status?: AuditStatus
   ipAddress?: string
   errorMessage?: string
+  tenantId: string
 }
 
 export interface AuditLogFilters {
@@ -51,6 +52,7 @@ export interface AuditLogFilters {
   to?: string
   adminId?: string
   targetUserId?: string
+  tenantId?: string
 }
 
 /**
@@ -72,4 +74,5 @@ export interface AuditLogEntry {
   ipAddress?: string
   status: AuditStatus
   errorMessage?: string
+  tenantId: string
 }
