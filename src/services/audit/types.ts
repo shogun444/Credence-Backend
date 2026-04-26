@@ -7,6 +7,7 @@ export enum AuditAction {
   REVOKE_ROLE = 'REVOKE_ROLE',
   REVOKE_API_KEY = 'REVOKE_API_KEY',
   CREATE_API_KEY = 'CREATE_API_KEY',
+  ROTATE_API_KEY = 'ROTATE_API_KEY',
   DELETE_USER = 'DELETE_USER',
   DISPUTE_SUBMITTED = 'DISPUTE_SUBMITTED',
   DISPUTE_MARKED_UNDER_REVIEW = 'DISPUTE_MARKED_UNDER_REVIEW',
@@ -17,7 +18,41 @@ export enum AuditAction {
   EVIDENCE_UPLOADED = 'EVIDENCE_UPLOADED',
   EVIDENCE_ACCESSED = 'EVIDENCE_ACCESSED',
   EXPORT_AUDIT_LOGS = 'EXPORT_AUDIT_LOGS',
-  ROTATE_WEBHOOK_SECRET = 'ROTATE_WEBHOOK_SECRET',
+  ISSUE_IMPERSONATION_TOKEN = 'ISSUE_IMPERSONATION_TOKEN',
+  REVOKE_IMPERSONATION_TOKEN = 'REVOKE_IMPERSONATION_TOKEN',
+  INVITE_MEMBER = 'INVITE_MEMBER',
+  LIST_MEMBERS = 'LIST_MEMBERS',
+  UPDATE_MEMBER_ROLE = 'UPDATE_MEMBER_ROLE',
+  DELETE_MEMBER = 'DELETE_MEMBER',
+  RESTORE_MEMBER = 'RESTORE_MEMBER',
+}
+
+export type AuditStatus = 'success' | 'failure'
+
+export interface AuditLogInput {
+  actorId: string
+  actorEmail: string
+  action: AuditAction | string
+  resourceType: string
+  resourceId: string
+  details?: Record<string, unknown>
+  status?: AuditStatus
+  ipAddress?: string
+  errorMessage?: string
+  tenantId: string
+}
+
+export interface AuditLogFilters {
+  action?: AuditAction | string
+  actorId?: string
+  resourceType?: string
+  resourceId?: string
+  status?: AuditStatus
+  from?: string
+  to?: string
+  adminId?: string
+  targetUserId?: string
+  tenantId?: string
 }
 
 /**
@@ -39,4 +74,5 @@ export interface AuditLogEntry {
   ipAddress?: string
   status: AuditStatus
   errorMessage?: string
+  tenantId: string
 }
