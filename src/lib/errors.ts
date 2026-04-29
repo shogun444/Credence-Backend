@@ -5,6 +5,8 @@
  */
 export enum ErrorCode {
   VALIDATION_FAILED = 'validation_failed',
+  FIELD_REQUIRED = 'field_required',
+  INVALID_FORMAT = 'invalid_format',
   INVALID_ADDRESS = 'invalid_address',
   INSUFFICIENT_FUNDS = 'insufficient_funds',
   UNAUTHORIZED = 'unauthorized',
@@ -15,6 +17,10 @@ export enum ErrorCode {
   INTERNAL_SERVER_ERROR = 'internal_server_error',
   SERVICE_UNAVAILABLE = 'service_unavailable',
   RATE_LIMIT_EXCEEDED = 'rate_limit_exceeded',
+  VALUE_TOO_SMALL = 'value_too_small',
+  VALUE_TOO_LARGE = 'value_too_large',
+  UNEXPECTED_FIELD = 'unexpected_field',
+  INVALID_TYPE = 'invalid_type',
 }
 
 /**
