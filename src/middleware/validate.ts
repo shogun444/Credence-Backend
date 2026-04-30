@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express'
 import type { ZodSchema, ZodError } from 'zod'
-import { ValidationError } from '../lib/errors.js'
+import { ValidationError, ErrorCode } from '../lib/errors.js'
 
 /**
  * Validated request payload.
@@ -37,13 +37,43 @@ export interface ValidateOptions {
 /**
  * Format Zod errors into a consistent structure.
  * @param error - ZodError from schema.safeParse()
- * @returns Array of { path, message } for client consumption
+ * @returns Array of { path, message, code } for client consumption
  */
-function formatZodErrors(error: ZodError): Array<{ path: string; message: string }> {
-  return error.issues.map((e) => ({
-    path: e.path?.length ? e.path.join('.') : '(root)',
-    message: e.message,
-  }))
+function formatZodErrors(error: ZodError): Array<{ path: string; message: string; code: string }> {
+  return error.issues.map((e) => {
+    let code: ErrorCode = ErrorCode.VALIDATION_FAILED
+
+    switch (e.code) {
+      case 'invalid_type':
+        // In Zod 4, the 'received' property is often missing from the issue object,
+        // so we check the message as a fallback to identify missing fields.
+        code = e.message.includes('received undefined')
+          ? ErrorCode.FIELD_REQUIRED
+          : ErrorCode.INVALID_TYPE
+        break
+      case 'invalid_string':
+      case 'invalid_format':
+        code = (e.path.join('.').toLowerCase().includes('address') || e.message.toLowerCase().includes('address'))
+          ? ErrorCode.INVALID_ADDRESS
+          : ErrorCode.INVALID_FORMAT
+        break
+      case 'too_small':
+        code = ErrorCode.VALUE_TOO_SMALL
+        break
+      case 'too_big':
+        code = ErrorCode.VALUE_TOO_LARGE
+        break
+      case 'unrecognized_keys':
+        code = ErrorCode.UNEXPECTED_FIELD
+        break
+    }
+
+    return {
+      path: e.path?.length ? e.path.join('.') : '(root)',
+      message: e.message,
+      code,
+    }
+  })
 }
 
 /**
@@ -62,7 +92,7 @@ export function validate<TParams = unknown, TQuery = unknown, TBody = unknown>(
 
   return (req: Request, res: Response, next: NextFunction) => {
     const validated: ValidatedRequest<TParams, TQuery, TBody> = {}
-    const errors: Array<{ path: string; message: string }> = []
+    const errors: Array<{ path: string; message: string; code: string }> = []
 
     if (paramsSchema) {
       const result = paramsSchema.safeParse(req.params)
