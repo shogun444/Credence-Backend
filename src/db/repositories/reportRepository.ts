@@ -31,6 +31,29 @@ export class ReportRepository {
   }
 
   /**
+   * Atomically claim the next queued job and mark it RUNNING.
+   * Uses a single statement to avoid races between workers.
+   */
+  async claimNextQueued(): Promise<ReportJob | null> {
+    const { rows } = await this.db.query(
+      `WITH cte AS (
+         SELECT id FROM report_jobs
+         WHERE status = $1
+         ORDER BY created_at
+         FOR UPDATE SKIP LOCKED
+         LIMIT 1
+       )
+       UPDATE report_jobs
+       SET status = $2, updated_at = NOW()
+       WHERE id IN (SELECT id FROM cte)
+       RETURNING id, type, status, failure_reason, artifact_url, created_at, updated_at`,
+      [ReportJobStatus.QUEUED, ReportJobStatus.RUNNING]
+    )
+
+    return rows.length ? this.map(rows[0]) : null
+  }
+
+  /**
    * Finds a report job by ID.
    */
   async findById(id: string): Promise<ReportJob | null> {
