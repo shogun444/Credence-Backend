@@ -11,6 +11,8 @@ export interface HealthRouterOptions {
   queue?: HealthProbe
   /** Optional gateway (e.g. Horizon); failure does not cause 503. */
   gateway?: HealthProbe
+  /** Optional readiness check to mark the service unhealthy during shutdown. */
+  isReady?: () => boolean
 }
 
 /**
@@ -39,6 +41,9 @@ export function createHealthRouter(options: HealthRouterOptions = {}): Router {
    */
   router.get('/', async (_req: Request, res: Response) => {
     const result = await runChecks()
+    if (options.isReady && !options.isReady()) {
+      result.status = 'unhealthy'
+    }
     const code = result.status === 'unhealthy' ? 503 : 200
     res.status(code).json(result)
   })
@@ -46,6 +51,9 @@ export function createHealthRouter(options: HealthRouterOptions = {}): Router {
   /** Alias for readiness (same as GET /). */
   router.get('/ready', async (_req: Request, res: Response) => {
     const result = await runChecks()
+    if (options.isReady && !options.isReady()) {
+      result.status = 'unhealthy'
+    }
     const code = result.status === 'unhealthy' ? 503 : 200
     res.status(code).json(result)
   })

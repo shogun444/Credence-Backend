@@ -2,6 +2,7 @@ import express from 'express'
 import { createJwksRouter } from './routes/jwks.js'
 import { createHealthRouter } from './routes/health.js'
 import { createDefaultProbes } from './services/health/probes.js'
+import { isReady } from './lifecycle.js'
 import trustRouter from './routes/trust.js'
 import bulkRouter from './routes/bulk.js'
 import importsRouter from './routes/imports.js'
@@ -62,7 +63,7 @@ app.use(express.json())
 app.use('/.well-known/jwks.json', createJwksRouter())
 
 const healthProbes = createDefaultProbes()
-app.use('/api/health', createHealthRouter(healthProbes))
+app.use('/api/health', createHealthRouter({ ...healthProbes, isReady }))
 
 app.use('/api', rateLimitMiddleware)
 
