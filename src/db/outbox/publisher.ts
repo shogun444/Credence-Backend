@@ -2,7 +2,10 @@ import { pool } from '../pool.js'
 import { OutboxRepository } from './repository.js'
 import type { OutboxEvent, OutboxCleanupConfig } from './types.js'
 import { randomUUID } from 'crypto'
-import { incrementOutboxDeadLetter } from '../../observability/outboxMetrics.js'
+import {
+  recordOutboxPublisherHeartbeat,
+  setOutboxPublisherRunning,
+} from '../../services/health/runtimeState.js'
 
 /**
  * Event handler that processes published domain events.
@@ -74,6 +77,8 @@ export class OutboxPublisher {
     }
 
     this.running = true
+    setOutboxPublisherRunning(true)
+    recordOutboxPublisherHeartbeat()
     console.log('[OutboxPublisher] Starting with config:', {
       ...this.config,
       consumerId: this.consumerId,
@@ -114,6 +119,7 @@ export class OutboxPublisher {
     }
 
     this.running = false
+    setOutboxPublisherRunning(false)
 
     if (this.pollTimer) {
       clearInterval(this.pollTimer)
@@ -144,6 +150,7 @@ export class OutboxPublisher {
       return
     }
     const renewed = await this.repository.renewLease(pool, this.consumerId, this.leaseSeconds)
+    recordOutboxPublisherHeartbeat()
     if (renewed > 0) {
       console.debug(`[OutboxPublisher] Renewed lease for ${renewed} events`)
     }
@@ -165,6 +172,7 @@ export class OutboxPublisher {
     )
 
     if (events.length === 0) {
+      recordOutboxPublisherHeartbeat()
       return
     }
 
