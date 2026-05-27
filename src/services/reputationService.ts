@@ -12,6 +12,21 @@
 
 import { getIdentity, type Identity } from '../db/store.js'
 import { loadConfig } from '../config/index.js'
+// Metrics for trust score cache
+import { Counter } from 'prom-client'
+import { register } from '../middleware/metrics.js'
+import { cache } from '../cache/redis.js'
+
+export const trustScoreCacheHits = new Counter({
+  name: 'trust_score_cache_hits_total',
+  help: 'Total trust score cache hits',
+  registers: [register]
+})
+export const trustScoreCacheMisses = new Counter({
+  name: 'trust_score_cache_misses_total',
+  help: 'Total trust score cache misses',
+  registers: [register]
+})
 
 export interface TrustScore {
   address: string
@@ -36,6 +51,7 @@ export interface ScoringConfig {
 // Load config once at module initialization
 const config = loadConfig()
 const scoringConfig: ScoringConfig = config.reputation
+const trustScoreCacheTtl = config.trustScoreCache.ttl
 
 /**
  * Get the current scoring configuration.
@@ -115,32 +131,22 @@ export async function getTrustScore(address: string): Promise<TrustScore | null>
   
   // 1. Try cache
   const cached = await cache.get<TrustScore>('trust', cacheKey)
-  if (cached) return cached
+  if (cached) {
+    trustScoreCacheHits.inc()
+    return cached
+  }
+  trustScoreCacheMisses.inc()
 
-  // 2. Try DB
-  const idResult = await pool.query(
-    `SELECT address, bonded_amount as "bondedAmount", 
-            bond_start as "bondStart"
-     FROM identities
-     WHERE address = $1`,
-    [address]
-  )
-
-  if (idResult.rows.length === 0) {
+  // 2. Try store/DB source
+  const identity = getIdentity(address)
+  if (!identity) {
     return null
   }
 
-  const row = idResult.rows[0]
-  const attResult = await pool.query(
-    'SELECT COUNT(*)::int as count FROM attestations WHERE subject_address = $1',
-    [address]
-  )
-  const attestationCount = parseInt(attResult.rows[0]?.count || '0', 10)
-  const record: IdentityRecord = { ...row, attestationCount }
-  const trustScore = computeTrustScoreFromRecord(record)
+  const trustScore = computeTrustScore(identity)
 
-  // 3. Save to cache (TTL 1 hour)
-  await cache.set('trust', cacheKey, trustScore, 3600)
+  // 3. Save to cache with configurable TTL
+  await cache.set('trust', cacheKey, trustScore, trustScoreCacheTtl)
 
   return trustScore
 }

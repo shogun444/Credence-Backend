@@ -11,6 +11,12 @@ import {
 dotenv.config()
 
 export const envSchema = z.object({
+    // Trust score cache TTL (seconds)
+    TRUST_SCORE_CACHE_TTL: z
+      .string()
+      .default('600') // 10 minutes
+      .transform(Number)
+      .pipe(z.number().int().min(60).max(86400)),
   // Server
   PORT: z
     .string()
@@ -203,6 +209,9 @@ export const envSchema = z.object({
 export type Env = z.infer<typeof envSchema>
 
 export interface Config {
+  trustScoreCache: {
+    ttl: number
+  }
   port: number
   nodeEnv: 'development' | 'production' | 'test'
   logLevel: 'debug' | 'info' | 'warn' | 'error'
@@ -249,6 +258,14 @@ export interface Config {
   }
   cors: {
     origin: string
+  }
+  timeouts: {
+    db: number
+    cache: number
+    queue: number
+    http: number
+    soroban: number
+    webhook: number
   }
   outboundHttp: {
     retry: {
@@ -402,17 +419,17 @@ function mapEnvToConfig(env: Env): Config {
       maxDurationDays: env.REPUTATION_MAX_DURATION_DAYS,
       maxAttestationCount: env.REPUTATION_MAX_ATTESTATION_COUNT,
     },
+    trustScoreCache: {
+      ttl: env.TRUST_SCORE_CACHE_TTL,
+    },
   }
 
   if (env.HORIZON_URL) {
     config.horizon = { url: env.HORIZON_URL }
   }
 
-  
-
   return config
 }
-
 export class ConfigValidationError extends Error {
   public readonly issues: z.ZodIssue[]
 
