@@ -11,7 +11,7 @@
 
 import { Request, Response, NextFunction } from 'express'
 import client from 'prom-client'
-import { registerLatencyMetrics } from '../observability/latencyMetrics.js'
+import { registerLatencyMetrics, httpRequestDurationHistogram, httpRequestStatusTotal, normalizeRoute } from '../observability/latencyMetrics.js'
 
 // Create a Registry to register metrics
 export const register = new client.Registry()
@@ -33,14 +33,6 @@ export const httpRequestsTotal = new client.Counter({
   name: 'http_requests_total',
   help: 'Total number of HTTP requests',
   labelNames: ['method', 'route', 'status'],
-  registers: [register]
-})
-
-export const httpRequestDuration = new client.Histogram({
-  name: 'http_request_duration_seconds',
-  help: 'Duration of HTTP requests in seconds',
-  labelNames: ['method', 'route', 'status'],
-  buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5],
   registers: [register]
 })
 
@@ -166,10 +158,13 @@ export const settlementDuplicatesDetected = new client.Counter({
  */
 export function metricsMiddleware(req: Request, res: Response, next: NextFunction) {
   const start = Date.now()
+  const hrStart = process.hrtime.bigint()
   
   res.on('finish', () => {
     const duration = (Date.now() - start) / 1000
-    const route = req.route?.path || req.path
+    const durationSeconds = Number(process.hrtime.bigint() - hrStart) / 1e9
+    const route = normalizeRoute(req.path, req.route?.path)
+    const statusClass = `${Math.floor(res.statusCode / 100)}xx`
     
     httpRequestsTotal.inc({
       method: req.method,
@@ -177,11 +172,17 @@ export function metricsMiddleware(req: Request, res: Response, next: NextFunctio
       status: res.statusCode
     })
     
-    httpRequestDuration.observe({
+    httpRequestDurationHistogram.observe({
       method: req.method,
       route,
-      status: res.statusCode
-    }, duration)
+      status_class: statusClass
+    }, durationSeconds)
+
+    httpRequestStatusTotal.inc({
+      method: req.method,
+      route,
+      status_class: statusClass
+    })
   })
   
   next()

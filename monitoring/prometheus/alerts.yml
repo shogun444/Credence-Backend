@@ -2,86 +2,90 @@ groups:
   - name: credence_backend_alerts
     interval: 30s
     rules:
-      # High error rate
-      - alert: HighErrorRate
+      # High error rate (Success Rate SLO: 99.9%)
+      - alert: SuccessRateSLOViolation
         expr: |
-          rate(http_requests_total{job="credence-backend", status=~"5.."}[5m]) 
-          / rate(http_requests_total{job="credence-backend"}[5m]) > 0.05
-        for: 5m
+          sum(rate(http_requests_status_total{status_class="5xx"}[5m])) 
+          / sum(rate(http_requests_status_total[5m])) > 0.001
+        for: 2m
         labels:
           severity: critical
-          service: credence-backend
         annotations:
-          summary: "High HTTP error rate detected"
-          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+          summary: "Success Rate SLO Violation"
+          description: "Error rate is {{ $value | humanizePercentage }} (SLO: 99.9% success)"
 
-      # High latency
-      - alert: HighLatency
+      # Fast Burn Alert (1h budget consumed in 2m)
+      - alert: ErrorBudgetBurnRateHigh
         expr: |
-          histogram_quantile(0.95, 
-            rate(http_request_duration_seconds_bucket{job="credence-backend"}[5m])
-          ) > 2
+          (
+            sum(rate(http_requests_status_total{status_class="5xx"}[1h])) 
+            / sum(rate(http_requests_status_total[1h]))
+          ) > (14.4 * 0.001)
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High Error Budget Burn Rate"
+          description: "Current burn rate is 14.4x the allowed error rate (0.1%)"
+
+      # Per-endpoint Latency SLO (95% of requests < 250ms)
+      - alert: EndpointLatencySLOViolation
+        expr: |
+          (
+            sum(rate(http_request_duration_seconds_bucket{le="0.25", status_class="2xx"}[5m])) by (route)
+            / 
+            sum(rate(http_request_duration_seconds_count{status_class="2xx"}[5m])) by (route)
+          ) < 0.95
         for: 5m
         labels:
           severity: warning
-          service: credence-backend
         annotations:
-          summary: "High request latency detected"
-          description: "P95 latency is {{ $value }}s (threshold: 2s)"
+          summary: "Latency SLO violation on {{ $labels.route }}"
+          description: "Less than 95% of successful requests on {{ $labels.route }} are under 250ms"
+
+      # Extreme Latency (p99 > 1s)
+      - alert: HighP99Latency
+        expr: |
+          histogram_quantile(0.99, 
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, route)
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High p99 latency on {{ $labels.route }}"
+          description: "P99 latency is {{ $value }}s (Threshold: 1s)"
+
+
+      # High latency (General performance)
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, route)
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High request latency detected on {{ $labels.route }}"
+          description: "P95 latency is {{ $value }}s"
 
       # Database down
       - alert: DatabaseDown
-        expr: health_check_status{job="credence-backend", dependency="db"} == 0
+        expr: health_check_status{dependency="db"} == 0
         for: 1m
         labels:
           severity: critical
-          service: credence-backend
         annotations:
           summary: "Database is down"
           description: "PostgreSQL health check failing"
 
       # Redis down
       - alert: RedisDown
-        expr: health_check_status{job="credence-backend", dependency="redis"} == 0
+        expr: health_check_status{dependency="redis"} == 0
         for: 1m
         labels:
           severity: critical
-          service: credence-backend
         annotations:
           summary: "Redis is down"
           description: "Redis health check failing"
-
-      # Slow health checks
-      - alert: SlowHealthCheck
-        expr: health_check_duration_seconds{job="credence-backend"} > 3
-        for: 5m
-        labels:
-          severity: warning
-          service: credence-backend
-        annotations:
-          summary: "Health check is slow"
-          description: "{{ $labels.dependency }} health check taking {{ $value }}s"
-
-      # Low verification rate (business metric)
-      - alert: LowVerificationRate
-        expr: rate(identity_verifications_total{job="credence-backend"}[10m]) < 0.1
-        for: 30m
-        labels:
-          severity: warning
-          service: credence-backend
-        annotations:
-          summary: "Low identity verification rate"
-          description: "Verification rate dropped to {{ $value }} req/s"
-
-      # High bulk verification failure rate
-      - alert: HighBulkVerificationFailureRate
-        expr: |
-          rate(bulk_verifications_total{job="credence-backend", status="error"}[5m])
-          / rate(bulk_verifications_total{job="credence-backend"}[5m]) > 0.1
-        for: 5m
-        labels:
-          severity: warning
-          service: credence-backend
-        annotations:
-          summary: "High bulk verification failure rate"
-          description: "Bulk verification failure rate is {{ $value | humanizePercentage }}"
