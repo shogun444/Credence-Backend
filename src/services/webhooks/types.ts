@@ -2,6 +2,8 @@
  * Webhook event types for bond lifecycle.
  */
 export type WebhookEventType = 'bond.created' | 'bond.slashed' | 'bond.withdrawn'
+  | 'attestation.created'
+  | 'attestation.revoked'
 
 /**
  * Webhook configuration for a registered endpoint.
@@ -21,8 +23,6 @@ export interface WebhookConfig {
   secretUpdatedAt: Date
   /** Whether this webhook is active. */
   active: boolean
-  /** Previous secret kept alive during safe-rollout grace period. */
-  previousSecret?: string
   /** ISO timestamp when the secret was last rotated. */
   secretRotatedAt?: string
   /** ISO timestamp after which previousSecret is no longer valid. */
@@ -49,13 +49,7 @@ export interface WebhookPayload {
   /** ISO timestamp when event occurred. */
   timestamp: string
   /** Event data (identity state). */
-  data: {
-    address: string
-    bondedAmount: string
-    bondStart: number | null
-    bondDuration: number | null
-    active: boolean
-  }
+  data: Record<string, unknown>
 }
 
 /**

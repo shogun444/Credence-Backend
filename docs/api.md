@@ -175,6 +175,65 @@ curl http://localhost:3000/api/trust/not-an-address
 
 ---
 
+### `GET /api/attestations/:address`
+
+Returns persisted attestations for a subject address. Results are ordered newest
+first and paginated with `page` and `limit`.
+
+```
+GET /api/attestations/:address?page=1&limit=20
+```
+
+**Response `200`**
+
+```json
+{
+  "address": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+  "attestations": [
+    {
+      "id": 42,
+      "bondId": 10,
+      "attesterAddress": "0x2222222222222222222222222222222222222222",
+      "subjectAddress": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+      "score": 90,
+      "note": "{\"key\":\"kyc\",\"value\":\"verified\"}",
+      "createdAt": "2025-01-01T00:00:00.000Z"
+    }
+  ],
+  "offset": 0,
+  "page": 1,
+  "limit": 20,
+  "total": 1,
+  "hasNext": false
+}
+```
+
+### `POST /api/attestations`
+
+Creates a persisted attestation, invalidates attestation caches, and emits an
+`attestation.created` outbox event.
+
+```json
+{
+  "bondId": 10,
+  "attesterAddress": "0x2222222222222222222222222222222222222222",
+  "subject": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+  "key": "kyc",
+  "value": "verified",
+  "score": 90
+}
+```
+
+**Responses**
+
+| Status | Condition |
+| ------ | --------- |
+| `201` | Attestation persisted |
+| `400` | Invalid address, score, pagination, or oversized `key`/`value` |
+| `409` | Duplicate `(bondId, attesterAddress, subject)` attestation |
+
+---
+
 ### `GET /api/bond/:address`
 
 Returns bond status for an Ethereum address from the database.

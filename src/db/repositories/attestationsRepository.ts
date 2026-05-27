@@ -18,6 +18,16 @@ export interface CreateAttestationInput {
   note?: string | null
 }
 
+export interface ListAttestationsPageOptions {
+  offset: number
+  limit: number
+}
+
+export interface AttestationPage {
+  attestations: Attestation[]
+  total: number
+}
+
 type AttestationRow = {
   id: string | number
   bond_id: string | number
@@ -88,6 +98,37 @@ export class AttestationsRepository {
     )
 
     return result.rows.map(mapAttestation)
+  }
+
+  async listBySubjectPage(
+    subjectAddress: string,
+    options: ListAttestationsPageOptions
+  ): Promise<AttestationPage> {
+    const [items, count] = await Promise.all([
+      this.db.query<AttestationRow>(
+        `
+        SELECT id, bond_id, attester_address, subject_address, score, note, created_at
+        FROM attestations
+        WHERE subject_address = $1
+        ORDER BY created_at DESC, id DESC
+        LIMIT $2 OFFSET $3
+        `,
+        [subjectAddress, options.limit, options.offset]
+      ),
+      this.db.query<{ total: string | number }>(
+        `
+        SELECT COUNT(*) AS total
+        FROM attestations
+        WHERE subject_address = $1
+        `,
+        [subjectAddress]
+      ),
+    ])
+
+    return {
+      attestations: items.rows.map(mapAttestation),
+      total: Number(count.rows[0]?.total ?? 0),
+    }
   }
 
   async listByBond(bondId: number): Promise<Attestation[]> {
