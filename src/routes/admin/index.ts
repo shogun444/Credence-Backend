@@ -222,7 +222,7 @@ export function createAdminRouter(): Router {
       const authReq = req as AuthenticatedRequest
       const user = authReq.user!
 
-      const { page, limit, offset } = parsePaginationParams(req.query as Record<string, unknown>, { defaultLimit: 50 })
+      const { limit, cursor } = parsePaginationParams(req.query as Record<string, unknown>, { defaultLimit: 50 })
 
       // Build filter object from query params
       const filters: any = {}
@@ -236,13 +236,16 @@ export function createAdminRouter(): Router {
       if (req.query.from) filters.from = req.query.from
       if (req.query.to) filters.to = req.query.to
 
-      const result = await adminService.getAuditLogs(user.id, user.email, filters, limit, offset, user)
+      const result = await adminService.getAuditLogs(user.id, user.email, filters, limit, cursor ?? undefined, user)
+
+      // Use buildCursorPaginationMeta from lib/pagination
+      const { buildCursorPaginationMeta } = await import('../../lib/pagination.js')
 
       res.status(200).json({
         success: true,
         data: {
-          ...result,
-          ...buildPaginationMeta(result.total, page, limit),
+          logs: result.logs,
+          ...buildCursorPaginationMeta(result.hasNextPage, limit, result.nextCursor),
         },
       })
     } catch (error) {

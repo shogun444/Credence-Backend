@@ -4,7 +4,7 @@
 
 import { Router, type Request, type Response } from 'express';
 import {
-  buildPaginationMeta,
+  buildCursorPaginationMeta,
   parsePaginationParams,
 } from '../lib/pagination.js';
 import { AttestationRepository } from '../repositories/attestationRepository.js';
@@ -46,16 +46,17 @@ export function createAttestationRouter(repo: AttestationRepository): Router {
     const includeRevoked = req.query.includeRevoked === 'true';
 
     try {
-      const { page, limit, offset } = parsePaginationParams(req.query as Record<string, unknown>);
+      const { limit, cursor } = parsePaginationParams(req.query as Record<string, unknown>);
 
-      const { attestations, total } = repo.findBySubject(identity, {
+      // Fallback for backwards compat is handled inside pagination lib if cursor is an integer
+      const { attestations, hasNextPage, nextCursor } = repo.findBySubject(identity, {
         includeRevoked,
-        offset,
+        cursor: cursor ?? undefined,
         limit,
       });
-      const paginationMeta = buildPaginationMeta(total, page, limit);
+      const paginationMeta = buildCursorPaginationMeta(hasNextPage, limit, nextCursor);
 
-      const body: AttestationListResponse = {
+      const body = {
         identity,
         attestations,
         ...paginationMeta,

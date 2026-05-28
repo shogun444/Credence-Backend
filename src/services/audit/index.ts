@@ -78,17 +78,17 @@ export class AuditLogService {
    * 
    * @param filters - Optional filters for action, adminId, targetUserId, etc.
    * @param limit - Maximum number of logs to return (default: 100)
-   * @param offset - Pagination offset (default: 0)
+   * @param cursor - Pagination cursor
    * @param options - Additional options for tenant scoping
-   * @returns Array of matching audit log entries and total count
+   * @returns Array of matching audit log entries and pagination metadata
    */
   async getLogs(
     tenantId: string | undefined,
     filters: AuditLogFilters = {},
     limit = 100,
-    offset = 0,
+    cursor?: string,
     options?: { allowSuperScope?: boolean }
-  ): Promise<{ logs: AuditLogEntry[]; total: number }> {
+  ): Promise<{ logs: AuditLogEntry[]; hasNextPage: boolean; nextCursor?: string }> {
     // SECURITY: Enforce tenant scoping - deny by default
     if (!tenantId && !options?.allowSuperScope) {
       throw new Error(
@@ -97,7 +97,7 @@ export class AuditLogService {
     }
 
     const effectiveTenantId = options?.allowSuperScope ? (filters.tenantId || tenantId) : tenantId
-    return this.repository.query({ ...filters, tenantId: effectiveTenantId }, limit, offset)
+    return this.repository.query({ ...filters, tenantId: effectiveTenantId }, limit, cursor)
   }
 
   /**

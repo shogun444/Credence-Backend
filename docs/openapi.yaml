@@ -392,6 +392,53 @@ components:
             type: never
           type: never
       type: object
+    createPayoutSchema:
+      def:
+        type: object
+        shape:
+          bondId:
+            def:
+              type: union
+              options:
+                - def: { type: string }
+                  type: string
+                - def: { type: number }
+                  type: number
+            type: union
+            options:
+              - type: string
+              - type: number
+          amount:
+            def:
+              type: string
+            type: string
+            format: regex
+          transactionHash:
+            def:
+              type: string
+            type: string
+            minLength: 1
+            maxLength: 128
+          settledAt:
+            def:
+              type: optional
+              innerType:
+                def: { type: string }
+                type: string
+                format: datetime
+            type: optional
+          status:
+            def:
+              type: optional
+              innerType:
+                def:
+                  type: enum
+                  entries: { pending: pending, settled: settled, failed: failed }
+                type: enum
+                enum: { pending: pending, settled: settled, failed: failed }
+                options: [pending, settled, failed]
+            type: optional
+      type: object
     trustPathParamsSchema:
       def:
         type: object

@@ -60,7 +60,8 @@ Supported filters:
 - `status`
 - `from` (ISO timestamp)
 - `to` (ISO timestamp)
-- `limit`, `offset`
+- `limit` (max 100)
+- `cursor` (opaque keyset cursor for pagination)
 
 Examples:
 

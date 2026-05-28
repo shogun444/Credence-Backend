@@ -232,7 +232,7 @@ export class AdminService {
    * @param adminEmail - Email of the admin
    * @param filters - Filter options
    * @param limit - Max results
-   * @param offset - Pagination offset
+   * @param cursor - Pagination cursor
    * @returns Audit logs
    */
   getAuditLogs(
@@ -240,7 +240,7 @@ export class AdminService {
     adminEmail: string,
     filters: any,
     limit: number,
-    offset: number,
+    cursor: string | undefined,
     user: AuthenticatedRequest['user']
   ) {
     const options: { allowSuperScope?: boolean } = {}
@@ -256,7 +256,7 @@ export class AdminService {
         resourceId: filters?.resourceId ?? filters?.targetUserId,
       },
       limit,
-      offset,
+      cursor,
       options
     )
   }

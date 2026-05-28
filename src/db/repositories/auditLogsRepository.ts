@@ -6,6 +6,7 @@ import type {
   AuditLogInput,
   AuditStatus,
 } from '../../services/audit/types.js'
+import { decodeCursor, encodeCursor } from '../../lib/pagination.js'
 
 type AuditLogRow = {
   id: string
@@ -98,7 +99,7 @@ const applyFilters = (
 
 export interface AuditLogRepository {
   append(input: AuditLogInput): Promise<AuditLogEntry>
-  query(filters?: AuditLogFilters, limit?: number, offset?: number): Promise<{ logs: AuditLogEntry[]; total: number }>
+  query(filters?: AuditLogFilters, limit?: number, cursor?: string): Promise<{ logs: AuditLogEntry[]; hasNextPage: boolean; nextCursor?: string }>
   getAll(): Promise<AuditLogEntry[]>
   clear(): Promise<void>
 }
@@ -156,22 +157,27 @@ export class PostgresAuditLogsRepository implements AuditLogRepository {
     return mapAuditLog(result.rows[0])
   }
 
-  async query(filters?: AuditLogFilters, limit = 100, offset = 0): Promise<{ logs: AuditLogEntry[]; total: number }> {
+  async query(filters?: AuditLogFilters, limit = 100, cursor?: string): Promise<{ logs: AuditLogEntry[]; hasNextPage: boolean; nextCursor?: string }> {
     const whereClauses: string[] = []
     const params: unknown[] = []
     applyFilters(filters, whereClauses, params)
 
+    if (cursor) {
+      const decoded = decodeCursor(cursor)
+      if (decoded) {
+        params.push(decoded.t)
+        params.push(decoded.i)
+        const tIdx = params.length - 1
+        const iIdx = params.length
+        whereClauses.push(`(occurred_at, id) < ($${tIdx}, $${iIdx})`)
+      }
+    }
+
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : ''
 
-    const totalResult = await this.db.query<{ total: string }>(
-      `SELECT COUNT(*)::TEXT AS total FROM audit_logs ${whereSql}`,
-      params,
-    )
-
-    params.push(limit)
+    // Fetch limit + 1 to determine hasNextPage
+    params.push(limit + 1)
     const limitIdx = params.length
-    params.push(offset)
-    const offsetIdx = params.length
 
     const rowsResult = await this.db.query<AuditLogRow>(
       `
@@ -192,19 +198,29 @@ export class PostgresAuditLogsRepository implements AuditLogRepository {
       ${whereSql}
       ORDER BY occurred_at DESC, id DESC
       LIMIT $${limitIdx}
-      OFFSET $${offsetIdx}
       `,
       params,
     )
 
+    const hasNextPage = rowsResult.rows.length > limit
+    const logsRows = hasNextPage ? rowsResult.rows.slice(0, limit) : rowsResult.rows
+    const logs = logsRows.map(mapAuditLog)
+
+    let nextCursor: string | undefined
+    if (hasNextPage && logs.length > 0) {
+      const last = logs[logs.length - 1]
+      nextCursor = encodeCursor(last.timestamp, last.id)
+    }
+
     return {
-      logs: rowsResult.rows.map(mapAuditLog),
-      total: Number(totalResult.rows[0]?.total ?? 0),
+      logs,
+      hasNextPage,
+      nextCursor,
     }
   }
 
   async getAll(): Promise<AuditLogEntry[]> {
-    const result = await this.query(undefined, Number.MAX_SAFE_INTEGER, 0)
+    const result = await this.query(undefined, 1000000, undefined)
     return result.logs
   }
 
@@ -244,7 +260,7 @@ export class InMemoryAuditLogsRepository implements AuditLogRepository {
     return cloneEntry(frozen)
   }
 
-  async query(filters?: AuditLogFilters, limit = 100, offset = 0): Promise<{ logs: AuditLogEntry[]; total: number }> {
+  async query(filters?: AuditLogFilters, limit = 100, cursor?: string): Promise<{ logs: AuditLogEntry[]; hasNextPage: boolean; nextCursor?: string }> {
     let filtered = this.logs
 
     if (filters?.action) {
@@ -283,12 +299,38 @@ export class InMemoryAuditLogsRepository implements AuditLogRepository {
     }
 
     const ordered = [...filtered].sort(
-      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime() || b.id.localeCompare(a.id)
     )
 
+    let startIndex = 0
+    if (cursor) {
+      const decoded = decodeCursor(cursor)
+      if (decoded) {
+        startIndex = ordered.findIndex((l) => {
+          const tCmp = new Date(l.timestamp).getTime() - new Date(decoded.t).getTime()
+          if (tCmp < 0) return true
+          if (tCmp === 0 && l.id < decoded.i) return true
+          return false
+        })
+        if (startIndex === -1) startIndex = ordered.length
+      }
+    }
+
+    const sliced = ordered.slice(startIndex, startIndex + limit + 1)
+    const hasNextPage = sliced.length > limit
+    const logsRows = hasNextPage ? sliced.slice(0, limit) : sliced
+    const logs = logsRows.map(cloneEntry)
+
+    let nextCursor: string | undefined
+    if (hasNextPage && logs.length > 0) {
+      const last = logs[logs.length - 1]
+      nextCursor = encodeCursor(last.timestamp, last.id)
+    }
+
     return {
-      logs: ordered.slice(offset, offset + limit).map(cloneEntry),
-      total: ordered.length,
+      logs,
+      hasNextPage,
+      nextCursor,
     }
   }
 

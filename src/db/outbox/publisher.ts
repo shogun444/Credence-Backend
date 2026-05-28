@@ -6,6 +6,14 @@ import {
   recordOutboxPublisherHeartbeat,
   setOutboxPublisherRunning,
 } from '../../services/health/runtimeState.js'
+import { logger } from '../../utils/logger.js'
+import {
+  incrementOutboxDeadLetter,
+  incrementOutboxPublished,
+  incrementOutboxFailed,
+  setOutboxPendingGauge,
+  incrementOutboxLeaseRenew,
+} from '../../observability/index.js'
 
 /**
  * Event handler that processes published domain events.
@@ -30,6 +38,8 @@ export interface OutboxPublisherConfig {
   leaseSeconds?: number
   /** Heartbeat interval in milliseconds. Default: leaseSeconds * 1000 / 2 */
   heartbeatIntervalMs?: number
+  /** Metrics scrape interval in milliseconds. Default: 15000 */
+  metricsIntervalMs?: number
 }
 
 const DEFAULT_CONFIG: OutboxPublisherConfig = {
@@ -40,6 +50,7 @@ const DEFAULT_CONFIG: OutboxPublisherConfig = {
     failedRetentionDays: 30,
   },
   cleanupIntervalMs: 3600000,
+  metricsIntervalMs: 15000,
 }
 
 /**
@@ -55,6 +66,7 @@ export class OutboxPublisher {
   private pollTimer: NodeJS.Timeout | null = null
   private cleanupTimer: NodeJS.Timeout | null = null
   private heartbeatTimer: NodeJS.Timeout | null = null
+  private metricsTimer: NodeJS.Timeout | null = null
   private consumerId: string
   private leaseSeconds: number
   private heartbeatIntervalMs: number
@@ -79,35 +91,46 @@ export class OutboxPublisher {
     this.running = true
     setOutboxPublisherRunning(true)
     recordOutboxPublisherHeartbeat()
-    console.log('[OutboxPublisher] Starting with config:', {
-      ...this.config,
-      consumerId: this.consumerId,
-      leaseSeconds: this.leaseSeconds,
+    logger.info({
+      message: '[OutboxPublisher] Starting',
+      config: {
+        ...this.config,
+        consumerId: this.consumerId,
+        leaseSeconds: this.leaseSeconds,
+      }
     })
 
     // Start heartbeat loop to renew leases
     this.heartbeatTimer = setInterval(() => {
       this.renewLease().catch(err => {
-        console.error('[OutboxPublisher] Lease renewal error:', err)
+        logger.error('[OutboxPublisher] Lease renewal error', err)
       })
     }, this.heartbeatIntervalMs)
 
     // Start polling loop
     this.pollTimer = setInterval(() => {
       this.processBatch().catch(err => {
-        console.error('[OutboxPublisher] Error processing batch:', err)
+        logger.error('[OutboxPublisher] Error processing batch', err)
       })
     }, this.config.pollIntervalMs)
 
     // Start cleanup loop
     this.cleanupTimer = setInterval(() => {
       this.runCleanup().catch(err => {
-        console.error('[OutboxPublisher] Error running cleanup:', err)
+        logger.error('[OutboxPublisher] Error running cleanup', err)
       })
     }, this.config.cleanupIntervalMs)
 
+    // Start metrics scrape loop
+    this.metricsTimer = setInterval(() => {
+      this.scrapeMetrics().catch(err => {
+        logger.error('[OutboxPublisher] Error scraping metrics', err)
+      })
+    }, this.config.metricsIntervalMs)
+
     // Process immediately on start
     await this.processBatch()
+    await this.scrapeMetrics()
   }
 
   /**
@@ -136,10 +159,17 @@ export class OutboxPublisher {
       this.heartbeatTimer = null
     }
 
+    if (this.metricsTimer) {
+      clearInterval(this.metricsTimer)
+      this.metricsTimer = null
+      // Reset gauge when stopping to avoid stale metrics
+      setOutboxPendingGauge(0)
+    }
+
     // Release any claims to allow other consumers to pick up quickly
     await this.repository.releaseClaims(pool, this.consumerId)
 
-    console.log('[OutboxPublisher] Stopped')
+    logger.info('[OutboxPublisher] Stopped')
   }
 
   /**
@@ -152,7 +182,8 @@ export class OutboxPublisher {
     const renewed = await this.repository.renewLease(pool, this.consumerId, this.leaseSeconds)
     recordOutboxPublisherHeartbeat()
     if (renewed > 0) {
-      console.debug(`[OutboxPublisher] Renewed lease for ${renewed} events`)
+      incrementOutboxLeaseRenew(renewed)
+      logger.debug(`[OutboxPublisher] Renewed lease for ${renewed} events`)
     }
   }
 
@@ -176,7 +207,7 @@ export class OutboxPublisher {
       return
     }
 
-    console.log(`[OutboxPublisher] Processing ${events.length} events`)
+    logger.info(`[OutboxPublisher] Processing ${events.length} events`)
 
     // Process events sequentially to maintain ordering per aggregate
     const aggregateGroups = this.groupByAggregate(events)
@@ -218,12 +249,14 @@ export class OutboxPublisher {
     try {
       await this.publisher.publish(event)
       await this.repository.markPublished(pool, event.id)
-      console.log(`[OutboxPublisher] Published event ${event.id} (${event.eventType})`)
+      incrementOutboxPublished(event.aggregateType)
+      logger.info(`[OutboxPublisher] Published event ${event.id} (${event.eventType})`)
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
-      console.error(
-        `[OutboxPublisher] Failed to publish event ${event.id} (${event.eventType}):`,
-        errorMessage
+      incrementOutboxFailed(event.aggregateType)
+      logger.error(
+        { message: `[OutboxPublisher] Failed to publish event ${event.id} (${event.eventType})`, error: errorMessage },
+        error
       )
       try {
         const result = await this.repository.markFailed(pool, event.id, errorMessage)
@@ -234,10 +267,10 @@ export class OutboxPublisher {
             .replace(/[^A-Z0-9_]/g, '_')
             .slice(0, 50)
           incrementOutboxDeadLetter(code)
-          console.warn(`[OutboxPublisher] Event ${event.id} moved to dead-letter`)
+          logger.warn(`[OutboxPublisher] Event ${event.id} moved to dead-letter`)
         }
       } catch (err) {
-        console.error('[OutboxPublisher] Error marking event failed:', err)
+        logger.error('[OutboxPublisher] Error marking event failed', err)
       }
     }
   }
@@ -249,11 +282,20 @@ export class OutboxPublisher {
     try {
       const deletedCount = await this.repository.cleanup(pool, this.config.cleanup)
       if (deletedCount > 0) {
-        console.log(`[OutboxPublisher] Cleaned up ${deletedCount} old events`)
+        logger.info(`[OutboxPublisher] Cleaned up ${deletedCount} old events`)
       }
     } catch (error) {
-      console.error('[OutboxPublisher] Cleanup error:', error)
+      logger.error('[OutboxPublisher] Cleanup error', error)
     }
+  }
+
+  /**
+   * Scrape and report outbox metrics.
+   */
+  private async scrapeMetrics(): Promise<void> {
+    if (!this.running) return
+    const stats = await this.getStats()
+    setOutboxPendingGauge(stats.pending)
   }
 
   /**

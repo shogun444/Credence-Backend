@@ -21,3 +21,11 @@ export {
   createSlowOperationEvent,
   createSuccessEvent,
 } from './timeoutMetrics.js'
+
+export {
+  incrementOutboxDeadLetter,
+  incrementOutboxPublished,
+  incrementOutboxFailed,
+  setOutboxPendingGauge,
+  incrementOutboxLeaseRenew,
+} from './outboxMetrics.js'
