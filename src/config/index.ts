@@ -134,6 +134,11 @@ export const envSchema = z.object({
     .default('3600000')
     .transform(Number)
     .pipe(z.number().int().min(60000)),
+  SHUTDOWN_GRACE_PERIOD_MS: z
+    .string()
+    .default('30000')
+    .transform(Number)
+    .pipe(z.number().int().min(1000)),
 
   // Horizon (optional)
   HORIZON_URL: z.string().url().optional(),
@@ -293,6 +298,9 @@ export interface Config {
     failedRetentionDays: number
     cleanupIntervalMs: number
   }
+  shutdown: {
+    gracePeriodMs: number
+  }
   horizon?: {
     url: string
   }
@@ -433,6 +441,9 @@ function mapEnvToConfig(env: Env): Config {
       publishedRetentionDays: env.OUTBOX_PUBLISHED_RETENTION_DAYS,
       failedRetentionDays: env.OUTBOX_FAILED_RETENTION_DAYS,
       cleanupIntervalMs: env.OUTBOX_CLEANUP_INTERVAL_MS,
+    },
+    shutdown: {
+      gracePeriodMs: env.SHUTDOWN_GRACE_PERIOD_MS,
     },
     cors: {
       origin: env.CORS_ORIGIN,

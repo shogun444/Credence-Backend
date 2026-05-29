@@ -3,14 +3,16 @@ import { runHealthChecks } from '../services/health/index.js'
 import type { HealthProbe } from '../services/health/index.js'
 
 export interface HealthRouterOptions {
-  /** Postgres probe; when omitted, postgres is reported as not_configured. */
-  postgres?: HealthProbe
-  /** Redis probe; when omitted, redis is reported as not_configured. */
-  redis?: HealthProbe
-  /** Horizon listener heartbeat probe; omitted means not_configured. */
-  horizonListener?: HealthProbe
-  /** Outbox publisher lease/running probe; omitted means not_configured. */
-  outboxPublisher?: HealthProbe
+  /** DB probe; when omitted, db is reported as not_configured. */
+  db?: HealthProbe
+  /** Cache probe; when omitted, cache is reported as not_configured. */
+  cache?: HealthProbe
+  /** Queue probe; when omitted, queue is reported as not_configured. */
+  queue?: HealthProbe
+  /** Optional gateway (e.g. Horizon); failure does not cause 503. */
+  gateway?: HealthProbe
+  /** Optional readiness check to mark the service unhealthy during shutdown. */
+  isReady?: () => boolean
 }
 
 /**
@@ -39,6 +41,9 @@ export function createHealthRouter(options: HealthRouterOptions = {}): Router {
    */
   router.get('/', async (_req: Request, res: Response) => {
     const result = await runChecks()
+    if (options.isReady && !options.isReady()) {
+      result.status = 'unhealthy'
+    }
     const code = result.status === 'unhealthy' ? 503 : 200
     res.status(code).json(result)
   })
@@ -46,6 +51,9 @@ export function createHealthRouter(options: HealthRouterOptions = {}): Router {
   /** Alias for readiness (same as GET /). */
   router.get('/ready', async (_req: Request, res: Response) => {
     const result = await runChecks()
+    if (options.isReady && !options.isReady()) {
+      result.status = 'unhealthy'
+    }
     const code = result.status === 'unhealthy' ? 503 : 200
     res.status(code).json(result)
   })
