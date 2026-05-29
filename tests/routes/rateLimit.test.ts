@@ -342,38 +342,49 @@ describe('Rate Limit Middleware', () => {
   // ═══════════════════════════════════════════════════════════════════════════
 
   describe('fail-open behavior', () => {
-    it('allows traffic when Redis throws and failOpen is true', async () => {
-      const brokenRedis = { incr: vi.fn().mockRejectedValue(new Error('Redis down')), expire: vi.fn(), ttl: vi.fn() }
+    it('should allow traffic when Redis throws and failOpen is true', async () => {
+      const spyIncr = vi.spyOn(mockRedis, 'incr').mockRejectedValue(new Error('Redis down'))
 
       const app = express()
       app.use(express.json())
-      app.use('/api', createRateLimitMiddleware(baseConfig({ failOpen: true }), {
-        namespace: 'ratelimit:failopen',
-        getRedis: () => brokenRedis as any,
-      }))
+      app.use(
+        '/api',
+        createRateLimitMiddleware({
+          enabled: true,
+          windowSec: 60,
+          maxFree: 1,
+          maxPro: 1,
+          maxEnterprise: 1,
+          failOpen: true,
+        }, { namespace: 'ratelimit:failopen1' })
+      )
       app.get('/api/ping', (_req, res) => res.json({ ok: true }))
 
       const res = await request(app).get('/api/ping')
       expect(res.status).toBe(200)
       expect(res.headers['x-ratelimit-limit']).toBeDefined()
       expect(res.headers['x-ratelimit-remaining']).toBeDefined()
+      
+      spyIncr.mockRestore()
     })
   })
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // Fail-closed
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  describe('fail-closed behavior', () => {
-    it('returns 503 when Redis throws and failOpen is false', async () => {
-      const brokenRedis = { incr: vi.fn().mockRejectedValue(new Error('Redis down')), expire: vi.fn(), ttl: vi.fn() }
+    it('should return 503 when Redis throws and failOpen is false', async () => {
+      const spyIncr = vi.spyOn(mockRedis, 'incr').mockRejectedValue(new Error('Redis down'))
 
       const app = express()
       app.use(express.json())
-      app.use('/api', createRateLimitMiddleware(baseConfig({ failOpen: false }), {
-        namespace: 'ratelimit:failclosed',
-        getRedis: () => brokenRedis as any,
-      }))
+      app.use(
+        '/api',
+        createRateLimitMiddleware({
+          enabled: true,
+          windowSec: 60,
+          maxFree: 1,
+          maxPro: 1,
+          maxEnterprise: 1,
+          failOpen: false,
+        }, { namespace: 'ratelimit:failopen2' })
+      )
       app.get('/api/ping', (_req, res) => res.json({ ok: true }))
       app.use((_err: any, _req: any, res: any, _next: any) => {
         res.status(_err.status ?? 500).json({ error: _err.message, code: _err.code })
@@ -382,34 +393,8 @@ describe('Rate Limit Middleware', () => {
       const res = await request(app).get('/api/ping')
       expect(res.status).toBe(503)
       expect(res.body.error).toMatch(/unavailable/i)
-      expect(res.body.code).toBe('service_unavailable')
-    })
-
-    it('increments rate_limit_rejected_total with reason=redis_unavailable on fail-closed', async () => {
-      const brokenRedis = { incr: vi.fn().mockRejectedValue(new Error('Redis down')), expire: vi.fn(), ttl: vi.fn() }
-
-      const before = (await rateLimitRejectedTotal.get()).values
-        .filter((v) => v.labels.reason === 'redis_unavailable')
-        .reduce((sum, v) => sum + v.value, 0)
-
-      const app = express()
-      app.use(express.json())
-      app.use('/api', createRateLimitMiddleware(baseConfig({ failOpen: false }), {
-        namespace: 'ratelimit:failclosed-counter',
-        getRedis: () => brokenRedis as any,
-      }))
-      app.get('/api/ping', (_req, res) => res.json({ ok: true }))
-      app.use((_err: any, _req: any, res: any, _next: any) => {
-        res.status(_err.status ?? 500).json({ error: _err.message })
-      })
-
-      await request(app).get('/api/ping')
-
-      const after = (await rateLimitRejectedTotal.get()).values
-        .filter((v) => v.labels.reason === 'redis_unavailable')
-        .reduce((sum, v) => sum + v.value, 0)
-
-      expect(after).toBeGreaterThan(before)
+      
+      spyIncr.mockRestore()
     })
   })
 

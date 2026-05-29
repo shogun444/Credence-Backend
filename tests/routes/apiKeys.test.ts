@@ -161,7 +161,7 @@ describe('POST /api/integrations/keys', () => {
     const { app, auditSvc } = buildApp()
     await makeRequest(app, 'POST', '/api/integrations/keys', { auth: ADMIN_TOKEN })
 
-    const { logs } = await auditSvc.getLogs({ action: 'CREATE_API_KEY' })
+    const { logs } = await auditSvc.getLogs(undefined, { action: 'CREATE_API_KEY' }, 100, 0, { allowSuperScope: true })
     expect(logs.length).toBeGreaterThan(0)
     expect(logs[0].action).toBe('CREATE_API_KEY')
     expect(logs[0].status).toBe('success')
@@ -330,7 +330,7 @@ describe('POST /api/integrations/keys/:id/rotate', () => {
       auth: ADMIN_TOKEN,
     })
 
-    const { logs } = await auditSvc.getLogs({ action: 'ROTATE_API_KEY' })
+    const { logs } = await auditSvc.getLogs(undefined, { action: 'ROTATE_API_KEY' }, 100, 0, { allowSuperScope: true })
     expect(logs.length).toBeGreaterThan(0)
     const entry = logs.find((l) => l.status === 'success')
     expect(entry).toBeDefined()
@@ -346,7 +346,7 @@ describe('POST /api/integrations/keys/:id/rotate', () => {
 
     // The 404 is thrown before the service call, so no audit entry is expected here.
     // (The route validates existence before delegating to the service.)
-    const { logs } = await auditSvc.getLogs({ action: 'ROTATE_API_KEY' })
+    const { logs } = await auditSvc.getLogs(undefined, { action: 'ROTATE_API_KEY' }, 100, 0, { allowSuperScope: true })
     expect(logs.length).toBe(0)
   })
 })
@@ -416,7 +416,7 @@ describe('DELETE /api/integrations/keys/:id', () => {
       auth: ADMIN_TOKEN,
     })
 
-    const { logs } = await auditSvc.getLogs({ action: 'REVOKE_API_KEY' })
+    const { logs } = await auditSvc.getLogs(undefined, { action: 'REVOKE_API_KEY' }, 100, 0, { allowSuperScope: true })
     const entry = logs.find((l) => l.status === 'success')
     expect(entry).toBeDefined()
     expect(entry!.resourceId).toBe(keyId)

@@ -38,7 +38,7 @@ function createMemberService(): MemberService {
 }
 
 export function createMembersRouter(): Router {
-  const router = Router() 
+  const router = Router({ mergeParams: true }) 
   const memberService = createMemberService()
 
   // ── GET /api/orgs/:orgId/members ────────────────────────────────────

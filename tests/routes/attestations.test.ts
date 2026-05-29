@@ -1,410 +1,222 @@
-/**
- * @file Integration tests for attestation API routes.
- *
- * Covers:
- * ─ GET  /:identity/count  — active count, includeRevoked
- * ─ GET  /:identity        — list, pagination, revoked filtering, verifier+weight in response
- * ─ POST /                 — create attestation, validation errors
- * ─ DELETE /:id            — revoke, not found, already revoked
- */
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import express, { type Express } from 'express'
+import request from 'supertest'
+import { createAttestationRouter } from '../../src/routes/attestations.js'
+import { errorHandler } from '../../src/middleware/errorHandler.js'
+import type { Attestation } from '../../src/db/repositories/attestationsRepository.js'
 
-import { describe, it, expect, beforeEach } from 'vitest';
-import express, { type Express } from 'express';
+const SUBJECT = '0x1111111111111111111111111111111111111111'
+const ATTESTER = '0x2222222222222222222222222222222222222222'
+const MIXED_SUBJECT = '0x111111111111111111111111111111111111AaAa'
 
-import { AttestationRepository } from '../../src/repositories/attestationRepository.js';
-import { createAttestationRouter } from '../../src/routes/attestations.js';
+const makeAttestation = (id: number, subjectAddress = SUBJECT): Attestation => ({
+  id,
+  bondId: 10,
+  attesterAddress: ATTESTER,
+  subjectAddress,
+  score: 90,
+  note: JSON.stringify({ key: 'kyc', value: `verified-${id}` }),
+  createdAt: new Date(`2025-01-0${id}T00:00:00.000Z`),
+})
 
-// ── Lightweight fetch helper (no supertest) ──────────────────────────────
-
-async function request(
-  app: Express,
-  method: 'GET' | 'POST' | 'DELETE',
-  path: string,
-  body?: unknown,
-): Promise<{ status: number; body: unknown }> {
-  return new Promise((resolve, reject) => {
-    const server = app.listen(0, () => {
-      const addr = server.address();
-      if (!addr || typeof addr === 'string') {
-        server.close();
-        reject(new Error('Could not get server address'));
-        return;
-      }
-
-      const url = `http://127.0.0.1:${addr.port}${path}`;
-      const opts: RequestInit = {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-      };
-      if (body !== undefined) opts.body = JSON.stringify(body);
-
-      fetch(url, opts)
-        .then(async (res) => {
-          const json = await res.json();
-          server.close();
-          resolve({ status: res.status, body: json });
-        })
-        .catch((err) => {
-          server.close();
-          reject(err);
-        });
-    });
-  });
-}
-
-// ── Helper to seed via the API ───────────────────────────────────────────
-
-async function seedViaApi(
-  app: Express,
-  count: number,
-  subject = '0xAlice',
-): Promise<Array<{ id: string }>> {
-  const results: Array<{ id: string }> = [];
-  for (let i = 0; i < count; i++) {
-    const { body } = await request(app, 'POST', '/api/attestations', {
-      subject,
-      verifier: `0xVerifier${i}`,
-      weight: 50 + i,
-      claim: `claim-${i}`,
-    });
-    results.push(body as { id: string });
+describe('attestation routes', () => {
+  let app: Express
+  let cacheService: {
+    getAttestationsBySubjectPage: ReturnType<typeof vi.fn>
+    invalidateForAttestation: ReturnType<typeof vi.fn>
   }
-  return results;
-}
-
-// ── Tests ─────────────────────────────────────────────────────────────────
-
-describe('Attestation Routes', () => {
-  let app: Express;
-  let repo: AttestationRepository;
-  const BASE = '/api/attestations';
+  let transactionManager: {
+    withTransaction: ReturnType<typeof vi.fn>
+  }
+  let outbox: {
+    emit: ReturnType<typeof vi.fn>
+  }
 
   beforeEach(() => {
-    repo = new AttestationRepository();
-    app = express();
-    app.use(express.json());
-    app.use(BASE, createAttestationRouter(repo));
-  });
+    cacheService = {
+      getAttestationsBySubjectPage: vi.fn(),
+      invalidateForAttestation: vi.fn(),
+    }
+    outbox = {
+      emit: vi.fn(),
+    }
+    transactionManager = {
+      withTransaction: vi.fn(async (fn) => fn({ query: vi.fn(), release: vi.fn() })),
+    }
 
-  // ═══════════════════════════════════════════════════════════════════════
-  // GET /:identity/count
-  // ═══════════════════════════════════════════════════════════════════════
+    app = express()
+    app.use(express.json())
+    app.use('/api/attestations', createAttestationRouter({
+      cacheService: cacheService as any,
+      transactionManager: transactionManager as any,
+      outbox: outbox as any,
+    }))
+    app.use(errorHandler)
+  })
 
-  describe('GET /:identity/count', () => {
-    it('should return 0 for an identity with no attestations', async () => {
-      const { status, body } = await request(
-        app,
-        'GET',
-        `${BASE}/0xNobody/count`,
-      );
-      expect(status).toBe(200);
-      const data = body as { identity: string; count: number; includeRevoked: boolean };
-      expect(data.identity).toBe('0xNobody');
-      expect(data.count).toBe(0);
-      expect(data.includeRevoked).toBe(false);
-    });
+  describe('GET /api/attestations/:address', () => {
+    it('returns a repository-backed page with accurate totals', async () => {
+      cacheService.getAttestationsBySubjectPage.mockResolvedValue({
+        attestations: [makeAttestation(1), makeAttestation(2)],
+        total: 5,
+      })
 
-    it('should return active attestation count', async () => {
-      const created = await seedViaApi(app, 3, '0xAlice');
-      // Revoke one
-      await request(app, 'DELETE', `${BASE}/${created[0].id}`);
+      const res = await request(app)
+        .get(`/api/attestations/${SUBJECT}?page=2&limit=2`)
+        .expect(200)
 
-      const { body } = await request(app, 'GET', `${BASE}/0xAlice/count`);
-      expect((body as { count: number }).count).toBe(2);
-    });
+      expect(cacheService.getAttestationsBySubjectPage).toHaveBeenCalledWith(SUBJECT, {
+        offset: 2,
+        limit: 2,
+      })
+      expect(res.body).toMatchObject({
+        address: SUBJECT,
+        page: 2,
+        limit: 2,
+        offset: 2,
+        total: 5,
+        hasNext: true,
+      })
+      expect(res.body.attestations).toHaveLength(2)
+      expect(res.body.attestations[0].createdAt).toBe('2025-01-01T00:00:00.000Z')
+    })
 
-    it('should return total count when includeRevoked=true', async () => {
-      const created = await seedViaApi(app, 3, '0xAlice');
-      await request(app, 'DELETE', `${BASE}/${created[0].id}`);
+    it('returns an empty page beyond the last page while preserving total', async () => {
+      cacheService.getAttestationsBySubjectPage.mockResolvedValue({
+        attestations: [],
+        total: 3,
+      })
 
-      const { body } = await request(
-        app,
-        'GET',
-        `${BASE}/0xAlice/count?includeRevoked=true`,
-      );
-      const data = body as { count: number; includeRevoked: boolean };
-      expect(data.count).toBe(3);
-      expect(data.includeRevoked).toBe(true);
-    });
-  });
+      const res = await request(app)
+        .get(`/api/attestations/${SUBJECT}?page=100&limit=2`)
+        .expect(200)
 
-  // ═══════════════════════════════════════════════════════════════════════
-  // GET /:identity (list)
-  // ═══════════════════════════════════════════════════════════════════════
+      expect(res.body.attestations).toEqual([])
+      expect(res.body.total).toBe(3)
+      expect(res.body.hasNext).toBe(false)
+    })
 
-  describe('GET /:identity', () => {
-    it('should return empty list for unknown identity', async () => {
-      const { status, body } = await request(
-        app,
-        'GET',
-        `${BASE}/0xNobody`,
-      );
-      expect(status).toBe(200);
-      const data = body as { attestations: unknown[]; hasNextPage: boolean };
-      expect(data.attestations).toEqual([]);
-      expect(data.hasNextPage).toBe(false);
-    });
+    it('normalizes Ethereum addresses before querying cache', async () => {
+      cacheService.getAttestationsBySubjectPage.mockResolvedValue({
+        attestations: [],
+        total: 0,
+      })
 
-    it('should return attestations with verifier and weight', async () => {
-      await seedViaApi(app, 2, '0xAlice');
+      await request(app)
+        .get(`/api/attestations/${MIXED_SUBJECT}`)
+        .expect(200)
 
-      const { body } = await request(app, 'GET', `${BASE}/0xAlice`);
-      const data = body as { attestations: Array<{ verifier: string; weight: number }> };
-      expect(data.attestations).toHaveLength(2);
-      data.attestations.forEach((a) => {
-        expect(a.verifier).toBeTruthy();
-        expect(typeof a.weight).toBe('number');
-      });
-    });
+      expect(cacheService.getAttestationsBySubjectPage).toHaveBeenCalledWith(
+        MIXED_SUBJECT.toLowerCase(),
+        { offset: 0, limit: 20 },
+      )
+    })
 
-    it('should exclude revoked attestations by default', async () => {
-      const created = await seedViaApi(app, 3, '0xAlice');
-      await request(app, 'DELETE', `${BASE}/${created[0].id}`);
+    it('rejects invalid pagination', async () => {
+      const res = await request(app)
+        .get(`/api/attestations/${SUBJECT}?limit=999`)
+        .expect(400)
 
-      const { body } = await request(app, 'GET', `${BASE}/0xAlice`);
-      const data = body as { attestations: unknown[]; hasNextPage: boolean };
-      expect(data.attestations).toHaveLength(2);
-      expect(data.hasNextPage).toBe(false);
-    });
+      expect(res.body.error).toBe('Validation failed')
+      expect(cacheService.getAttestationsBySubjectPage).not.toHaveBeenCalled()
+    })
+  })
 
-    it('should include revoked attestations when includeRevoked=true', async () => {
-      const created = await seedViaApi(app, 3, '0xAlice');
-      await request(app, 'DELETE', `${BASE}/${created[0].id}`);
+  describe('POST /api/attestations', () => {
+    it('persists an attestation, emits an outbox event, and invalidates cache', async () => {
+      const created = makeAttestation(7)
+      transactionManager.withTransaction.mockImplementationOnce(async (fn) => {
+        const client = {
+          query: vi.fn().mockResolvedValue({ rows: [{
+            id: created.id,
+            bond_id: created.bondId,
+            attester_address: created.attesterAddress,
+            subject_address: created.subjectAddress,
+            score: created.score,
+            note: created.note,
+            created_at: created.createdAt,
+          }] }),
+        }
+        return fn(client)
+      })
 
-      const { body } = await request(
-        app,
-        'GET',
-        `${BASE}/0xAlice?includeRevoked=true`,
-      );
-      const data = body as { attestations: Array<{ revokedAt: string | null }>; hasNextPage: boolean };
-      expect(data.attestations).toHaveLength(3);
-      expect(data.hasNextPage).toBe(false);
+      const res = await request(app)
+        .post('/api/attestations')
+        .send({
+          bondId: 10,
+          attesterAddress: ATTESTER.toUpperCase().replace('X', 'x'),
+          subject: SUBJECT,
+          key: 'kyc',
+          value: 'verified',
+          score: 90,
+        })
+        .expect(201)
 
-      const revoked = data.attestations.filter((a) => a.revokedAt !== null);
-      expect(revoked).toHaveLength(1);
-    });
+      expect(res.body).toMatchObject({
+        id: 7,
+        bondId: 10,
+        attesterAddress: ATTESTER,
+        subjectAddress: SUBJECT,
+        score: 90,
+      })
+      expect(outbox.emit).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+        aggregateType: 'attestation',
+        aggregateId: '7',
+        eventType: 'attestation.created',
+      }))
+      expect(cacheService.invalidateForAttestation).toHaveBeenCalledWith(expect.objectContaining({
+        id: 7,
+        subjectAddress: SUBJECT,
+      }))
+    })
 
-    it('should flag revoked attestations with revokedAt', async () => {
-      const created = await seedViaApi(app, 2, '0xAlice');
-      await request(app, 'DELETE', `${BASE}/${created[0].id}`);
+    it('rejects duplicate attestations', async () => {
+      transactionManager.withTransaction.mockRejectedValueOnce({ code: '23505' })
 
-      const { body } = await request(
-        app,
-        'GET',
-        `${BASE}/0xAlice?includeRevoked=true`,
-      );
-      const data = body as { attestations: Array<{ id: string; revokedAt: string | null }> };
-      const revokedEntry = data.attestations.find((a) => a.id === created[0].id);
-      expect(revokedEntry).toBeDefined();
-      expect(revokedEntry!.revokedAt).not.toBeNull();
-    });
+      const res = await request(app)
+        .post('/api/attestations')
+        .send({
+          bondId: 10,
+          attesterAddress: ATTESTER,
+          subject: SUBJECT,
+          value: 'verified',
+          score: 90,
+        })
+        .expect(409)
 
-    // ── Pagination ──────────────────────────────────────────────────────
+      expect(res.body.error).toBe('Duplicate attestation')
+      expect(cacheService.invalidateForAttestation).not.toHaveBeenCalled()
+    })
 
-    it('should paginate with keyset cursor (limit=2)', async () => {
-      await seedViaApi(app, 5, '0xAlice');
+    it('rejects oversized values', async () => {
+      await request(app)
+        .post('/api/attestations')
+        .send({
+          bondId: 10,
+          attesterAddress: ATTESTER,
+          subject: SUBJECT,
+          value: 'x'.repeat(2049),
+          score: 90,
+        })
+        .expect(400)
 
-      const { body } = await request(
-        app,
-        'GET',
-        `${BASE}/0xAlice?limit=2`,
-      );
-      const data = body as {
-        attestations: any[];
-        limit: number;
-        hasNextPage: boolean;
-        nextCursor?: string;
-      };
-      expect(data.attestations).toHaveLength(2);
-      expect(data.limit).toBe(2);
-      expect(data.hasNextPage).toBe(true);
-      expect(data.nextCursor).toBeDefined();
+      expect(transactionManager.withTransaction).not.toHaveBeenCalled()
+    })
 
-      // Fetch next page
-      const { body: body2 } = await request(
-        app,
-        'GET',
-        `${BASE}/0xAlice?limit=2&cursor=${data.nextCursor}`,
-      );
-      const data2 = body2 as any;
-      expect(data2.attestations).toHaveLength(2);
-      expect(data2.hasNextPage).toBe(true);
-      
-      // Ensure the ids do not overlap
-      const ids1 = data.attestations.map((a: any) => a.id);
-      const ids2 = data2.attestations.map((a: any) => a.id);
-      expect(ids1.filter((id: string) => ids2.includes(id))).toHaveLength(0);
-    });
+    it('rejects oversized keys', async () => {
+      await request(app)
+        .post('/api/attestations')
+        .send({
+          bondId: 10,
+          attesterAddress: ATTESTER,
+          subject: SUBJECT,
+          key: 'k'.repeat(129),
+          value: 'verified',
+          score: 90,
+        })
+        .expect(400)
 
-    it('should fallback gracefully on invalid cursor string (caught by decodeCursor)', async () => {
-      await seedViaApi(app, 3, '0xAlice');
-
-      const { body } = await request(
-        app,
-        'GET',
-        `${BASE}/0xAlice?limit=2&cursor=not-a-valid-cursor`,
-      );
-      // Fails validation or falls back to start depending on how pagination handles it
-      // Since 'not-a-valid-cursor' doesn't parse as int and decodeCursor returns null, 
-      // the route returns 400 Validation Error.
-    });
-
-    it('should default to limit=20', async () => {
-      await seedViaApi(app, 2, '0xAlice');
-
-      const { body } = await request(app, 'GET', `${BASE}/0xAlice`);
-      const data = body as { limit: number };
-      expect(data.limit).toBe(20);
-    });
-
-    it('should return 400 when limit exceeds max 100', async () => {
-      await seedViaApi(app, 2, '0xAlice');
-
-      const { status, body } = await request(
-        app,
-        'GET',
-        `${BASE}/0xAlice?limit=999`,
-      );
-      expect(status).toBe(400);
-      expect((body as { error: string }).error).toBe('Validation failed');
-    });
-
-    it('should return 400 when page is below 1', async () => {
-      await seedViaApi(app, 2, '0xAlice');
-
-      const { status, body } = await request(
-        app,
-        'GET',
-        `${BASE}/0xAlice?page=0`,
-      );
-      expect(status).toBe(400);
-      expect((body as { error: string }).error).toBe('Validation failed');
-    });
-  });
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // POST / (create)
-  // ═══════════════════════════════════════════════════════════════════════
-
-  describe('POST /', () => {
-    it('should create an attestation and return 201', async () => {
-      const { status, body } = await request(app, 'POST', BASE, {
-        subject: '0xAlice',
-        verifier: '0xVerifier',
-        weight: 75,
-        claim: 'Identity verified',
-      });
-
-      expect(status).toBe(201);
-      const data = body as { id: string; subject: string; verifier: string; weight: number };
-      expect(data.id).toBeTruthy();
-      expect(data.subject).toBe('0xAlice');
-      expect(data.verifier).toBe('0xVerifier');
-      expect(data.weight).toBe(75);
-    });
-
-    it('should return 400 for missing subject', async () => {
-      const { status, body } = await request(app, 'POST', BASE, {
-        verifier: '0xV',
-        weight: 50,
-        claim: 'x',
-      });
-      expect(status).toBe(400);
-      expect((body as { error: string }).error).toMatch(/subject/i);
-    });
-
-    it('should return 400 for invalid weight', async () => {
-      const { status, body } = await request(app, 'POST', BASE, {
-        subject: '0xA',
-        verifier: '0xV',
-        weight: 200,
-        claim: 'x',
-      });
-      expect(status).toBe(400);
-      expect((body as { error: string }).error).toMatch(/weight/i);
-    });
-  });
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // DELETE /:id (revoke)
-  // ═══════════════════════════════════════════════════════════════════════
-
-  describe('DELETE /:id', () => {
-    it('should revoke an attestation and return the updated record', async () => {
-      const [created] = await seedViaApi(app, 1, '0xAlice');
-
-      const { status, body } = await request(
-        app,
-        'DELETE',
-        `${BASE}/${created.id}`,
-      );
-      expect(status).toBe(200);
-      expect((body as { revokedAt: string }).revokedAt).not.toBeNull();
-    });
-
-    it('should return 404 for unknown attestation', async () => {
-      const { status } = await request(
-        app,
-        'DELETE',
-        `${BASE}/nonexistent`,
-      );
-      expect(status).toBe(404);
-    });
-
-    it('should return 409 when revoking an already-revoked attestation', async () => {
-      const [created] = await seedViaApi(app, 1, '0xAlice');
-      await request(app, 'DELETE', `${BASE}/${created.id}`);
-
-      const { status, body } = await request(
-        app,
-        'DELETE',
-        `${BASE}/${created.id}`,
-      );
-      expect(status).toBe(409);
-      expect((body as { error: string }).error).toMatch(/already revoked/i);
-    });
-  });
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // End-to-end: full attestation lifecycle
-  // ═══════════════════════════════════════════════════════════════════════
-
-  describe('full lifecycle', () => {
-    it('create → count → list → revoke → count reflects change', async () => {
-      // Create 3 attestations
-      const created = await seedViaApi(app, 3, '0xAlice');
-      expect(created).toHaveLength(3);
-
-      // Count == 3
-      let res = await request(app, 'GET', `${BASE}/0xAlice/count`);
-      expect((res.body as { count: number }).count).toBe(3);
-
-      // List includes all 3 with verifier + weight
-      res = await request(app, 'GET', `${BASE}/0xAlice`);
-      const list = (res.body as { attestations: Array<{ verifier: string; weight: number }> }).attestations;
-      expect(list).toHaveLength(3);
-      list.forEach((a) => {
-        expect(a.verifier).toBeTruthy();
-        expect(typeof a.weight).toBe('number');
-      });
-
-      // Revoke one
-      await request(app, 'DELETE', `${BASE}/${created[1].id}`);
-
-      // Count == 2
-      res = await request(app, 'GET', `${BASE}/0xAlice/count`);
-      expect((res.body as { count: number }).count).toBe(2);
-
-      // List without revoked == 2
-      res = await request(app, 'GET', `${BASE}/0xAlice`);
-      expect((res.body as { attestations: unknown[] }).attestations).toHaveLength(2);
-
-      // List with revoked == 3, revoked one is flagged
-      res = await request(app, 'GET', `${BASE}/0xAlice?includeRevoked=true`);
-      const all = (res.body as { attestations: Array<{ id: string; revokedAt: string | null }> }).attestations;
-      expect(all).toHaveLength(3);
-      const revokedEntry = all.find((a) => a.id === created[1].id);
-      expect(revokedEntry?.revokedAt).not.toBeNull();
-    });
-  });
-});
+      expect(transactionManager.withTransaction).not.toHaveBeenCalled()
+    })
+  })
+})

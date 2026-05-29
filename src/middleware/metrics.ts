@@ -144,6 +144,16 @@ export const settlementDuplicatesDetected = new client.Counter({
 })
 
 // ============================================================================
+// Webhooks Metrics
+// ============================================================================
+
+export const webhookDlqSize = new client.Gauge({
+  name: 'webhook_dlq_size',
+  help: 'Number of messages in the webhook dead-letter queue',
+  registers: [register]
+})
+
+// ============================================================================
 // Middleware
 // ============================================================================
 
@@ -315,4 +325,18 @@ export function recordStaleCacheRead(namespace: string) {
  */
 export function recordSettlementDuplicate() {
   settlementDuplicatesDetected.inc()
+}
+
+/**
+ * Record webhook DLQ size
+ * 
+ * Usage:
+ * ```typescript
+ * import { recordWebhookDlqSize } from './middleware/metrics.js'
+ * 
+ * recordWebhookDlqSize(42)
+ * ```
+ */
+export function recordWebhookDlqSize(size: number) {
+  webhookDlqSize.set(size)
 }

@@ -5,8 +5,143 @@ info:
   description: Generated OpenAPI documentation from Zod schemas
 servers:
   - url: https://api.credence.org/v1
+paths:
+  /api/attestations/{address}:
+    get:
+      summary: List attestations for an address
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Paginated attestation list
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - address
+                  - attestations
+                  - offset
+                  - page
+                  - limit
+                  - total
+                  - hasNext
+                properties:
+                  address:
+                    type: string
+                  attestations:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Attestation"
+                  offset:
+                    type: integer
+                  page:
+                    type: integer
+                  limit:
+                    type: integer
+                  total:
+                    type: integer
+                  hasNext:
+                    type: boolean
+        "400":
+          description: Invalid address or pagination
+  /api/attestations:
+    post:
+      summary: Create an attestation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAttestationRequest"
+      responses:
+        "201":
+          description: Attestation persisted and outbox event emitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Attestation"
+        "400":
+          description: Invalid or oversized payload
+        "409":
+          description: Duplicate attestation
 components:
   schemas:
+    Attestation:
+      type: object
+      required:
+        - id
+        - bondId
+        - attesterAddress
+        - subjectAddress
+        - score
+        - createdAt
+      properties:
+        id:
+          type: integer
+        bondId:
+          type: integer
+        attesterAddress:
+          type: string
+        subjectAddress:
+          type: string
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        note:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    CreateAttestationRequest:
+      type: object
+      required:
+        - bondId
+        - attesterAddress
+        - subject
+        - value
+      properties:
+        bondId:
+          type: integer
+          minimum: 1
+        attesterAddress:
+          type: string
+        subject:
+          type: string
+        key:
+          type: string
+          minLength: 1
+          maxLength: 128
+        value:
+          type: string
+          minLength: 1
+          maxLength: 2048
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+          default: 100
     addressSchema:
       def:
         type: string

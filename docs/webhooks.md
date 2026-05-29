@@ -52,12 +52,13 @@ if (signature !== request.headers['x-webhook-signature']) {
 ```typescript
 import { createWebhookService } from './services/webhooks/index.js'
 
-// Create service with webhook store
-const webhookService = createWebhookService(store, {
+// Create service with webhook store and postgres DLQ store
+const dlqStore = new PostgresDlqStore(pool)
+const webhookService = new WebhookService(store, {
   maxRetries: 3,
   initialDelay: 1000,
   timeout: 5000,
-})
+}, dlqStore)
 
 // Emit event
 await webhookService.emit('bond.created', {
@@ -68,6 +69,14 @@ await webhookService.emit('bond.created', {
   active: true,
 })
 ```
+
+## Dead Letter Queue (DLQ)
+
+Failed webhook deliveries (e.g. max retries exceeded or 4xx responses) are permanently stored in a Postgres-backed Dead Letter Queue (`webhook_dlq` table).
+
+- **Durability**: Survives application restarts and deployments.
+- **Metrics**: The current size of the DLQ is exposed as a Prometheus gauge `webhook_dlq_size`.
+- **Replayability**: DLQ entries can be inspected and manually replayed, updating the `replayed_at` timestamp.
 
 ## Integration
 
