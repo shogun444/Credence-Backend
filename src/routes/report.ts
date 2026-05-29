@@ -22,7 +22,7 @@ interface ReportRequest {
  *
  * Starts an asynchronous report generation job
  *
- * @requires Enterprise API key via X-API-Key header
+ * @requires reports:generate scope
  *
  * @body {string} type - Type of report to generate (e.g., 'trust_score_summary')
  *
@@ -30,7 +30,7 @@ interface ReportRequest {
  */
 router.post(
   '/',
-  requireApiKey(ApiScope.ENTERPRISE),
+  requireApiKey(ApiScope.REPORTS_GENERATE),
   async (req: Request, res: Response): Promise<void> => {
     try {
       const { type } = req.body as ReportRequest
@@ -67,7 +67,7 @@ router.post(
  *
  * Gets the status of a report generation job
  *
- * @requires Enterprise API key via X-API-Key header
+ * @requires reports:generate scope
  *
  * @param {string} jobId - Unique report job ID
  *
@@ -75,7 +75,7 @@ router.post(
  */
 router.get(
   '/:jobId',
-  requireApiKey(ApiScope.ENTERPRISE),
+  requireApiKey(ApiScope.REPORTS_GENERATE),
   async (req: Request, res: Response): Promise<void> => {
     try {
       const { jobId } = req.params

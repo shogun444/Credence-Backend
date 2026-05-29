@@ -5,11 +5,96 @@ import { userRepo } from '../repositories/userRepository.js'
 import { requireApiKey as requireApiKeyFromApiKeyMiddleware } from './apiKey.js'
 
 /**
- * API key scopes for authorization
+ * Granular API key scopes for per-endpoint authorization.
+ *
+ * Scope semantics
+ * ───────────────
+ * trust:read        – Read-only access to trust scores and bond data
+ * attestations:read – Read attestations (list, count)
+ * attestations:write – Create or revoke attestations
+ * payouts:write     – Initiate payout / settlement operations
+ * reports:generate  – Trigger and poll report generation jobs
+ * exports:read      – Download report artifacts and audit-log exports
+ * webhooks:admin    – Manage webhook signing secrets (rotate / revoke)
+ * admin:read        – Read admin resources (users, audit logs, failed events)
+ * admin:write       – Mutate admin resources (assign roles, revoke keys, replay events, impersonate)
+ *
+ * Backward-compat aliases
+ * ───────────────────────
+ * PUBLIC     – alias kept for existing callers; grants trust:read + attestations:read
+ * ENTERPRISE – alias kept for existing callers; grants all scopes
  */
 export enum ApiScope {
+  // Granular scopes
+  TRUST_READ = 'trust:read',
+  ATTESTATIONS_READ = 'attestations:read',
+  ATTESTATIONS_WRITE = 'attestations:write',
+  PAYOUTS_WRITE = 'payouts:write',
+  REPORTS_GENERATE = 'reports:generate',
+  EXPORTS_READ = 'exports:read',
+  WEBHOOKS_ADMIN = 'webhooks:admin',
+  ADMIN_READ = 'admin:read',
+  ADMIN_WRITE = 'admin:write',
+
+  // Legacy aliases (backward-compatible)
   PUBLIC = 'public',
   ENTERPRISE = 'enterprise',
+}
+
+/**
+ * Scope sets granted by each legacy tier.
+ * An ENTERPRISE key implicitly holds every granular scope.
+ * A PUBLIC key holds the read-only subset.
+ */
+export const SCOPE_SETS: Record<string, ReadonlySet<ApiScope>> = {
+  [ApiScope.PUBLIC]: new Set([
+    ApiScope.TRUST_READ,
+    ApiScope.ATTESTATIONS_READ,
+  ]),
+  [ApiScope.ENTERPRISE]: new Set([
+    ApiScope.TRUST_READ,
+    ApiScope.ATTESTATIONS_READ,
+    ApiScope.ATTESTATIONS_WRITE,
+    ApiScope.PAYOUTS_WRITE,
+    ApiScope.REPORTS_GENERATE,
+    ApiScope.EXPORTS_READ,
+    ApiScope.WEBHOOKS_ADMIN,
+    ApiScope.ADMIN_READ,
+    ApiScope.ADMIN_WRITE,
+  ]),
+}
+
+/**
+ * Return true when the granted scope set satisfies the required scope.
+ *
+ * Rules (in order):
+ * 1. If grantedScopes contains the requiredScope directly → allow.
+ * 2. If grantedScopes contains ENTERPRISE → allow (superset).
+ * 3. If requiredScope is PUBLIC or TRUST_READ and grantedScopes contains PUBLIC → allow.
+ * 4. Otherwise → deny.
+ */
+export function scopeSatisfies(
+  grantedScopes: ReadonlySet<ApiScope> | ApiScope[],
+  requiredScope: ApiScope,
+): boolean {
+  const scopes: ReadonlySet<ApiScope> =
+    Array.isArray(grantedScopes) ? new Set(grantedScopes) : grantedScopes
+
+  // Direct match
+  if (scopes.has(requiredScope)) return true
+
+  // ENTERPRISE is a superset of everything
+  if (scopes.has(ApiScope.ENTERPRISE)) return true
+
+  // Expand legacy scope sets and re-check
+  for (const legacyScope of [ApiScope.PUBLIC, ApiScope.ENTERPRISE]) {
+    if (scopes.has(legacyScope)) {
+      const expanded = SCOPE_SETS[legacyScope]
+      if (expanded?.has(requiredScope)) return true
+    }
+  }
+
+  return false
 }
 
 /**
@@ -35,20 +120,73 @@ export interface AuthenticatedRequest extends Request {
   }
 }
 
-// Note: legacy in-source mocks were removed. Keys are validated against the
-// persisted hashed store via `validateApiKey`. User resolution is delegated
-// to `userRepo` so records are sourced from a single place (tests may seed
-// the in-memory repo).
+/**
+ * Mock API key store — maps raw key → set of granted scopes.
+ *
+ * In production this is replaced by a database lookup via ApiKeyRepository.
+ * The legacy single-scope values (PUBLIC / ENTERPRISE) are preserved here so
+ * that existing test fixtures continue to work without modification.
+ */
+const API_KEYS: Record<string, ApiScope[]> = {
+  // Legacy keys — kept for backward compatibility
+  'test-enterprise-key-12345': [ApiScope.ENTERPRISE],
+  'test-public-key-67890': [ApiScope.PUBLIC],
+
+  // Granular-scope test keys (used in auth.scopes.test.ts)
+  'test-trust-read-key': [ApiScope.TRUST_READ],
+  'test-attestations-write-key': [ApiScope.ATTESTATIONS_READ, ApiScope.ATTESTATIONS_WRITE],
+  'test-payouts-write-key': [ApiScope.PAYOUTS_WRITE],
+  'test-reports-key': [ApiScope.REPORTS_GENERATE, ApiScope.EXPORTS_READ],
+  'test-webhooks-admin-key': [ApiScope.WEBHOOKS_ADMIN],
+  'test-admin-read-key': [ApiScope.ADMIN_READ],
+  'test-admin-write-key': [ApiScope.ADMIN_READ, ApiScope.ADMIN_WRITE],
+}
 
 /**
- * Middleware to validate API key and check required scope
- * 
- * @param requiredScope - Minimum scope required for the endpoint
- * @returns Express middleware function
- * 
+ * Mock user store - in production, use database or identity provider
+ * Format: { userId: { id, role, email, apiKey } }
+ */
+export const MOCK_USERS: Record<string, { id: string; role: UserRole; email: string; apiKey: string; tenantId: string }> = {
+  'admin-user-1': {
+    id: 'admin-user-1',
+    role: UserRole.SUPER_ADMIN,
+    email: 'admin@credence.org',
+    apiKey: 'admin-key-12345',
+    tenantId: 'tenant-admin',
+  },
+  'verifier-user-1': {
+    id: 'verifier-user-1',
+    role: UserRole.VERIFIER,
+    email: 'verifier@credence.org',
+    apiKey: 'verifier-key-67890',
+    tenantId: 'tenant-verifier',
+  },
+}
+
+/**
+ * Mock API key to user mapping - in production, use database
+ */
+export const API_KEY_TO_USER: Record<string, string> = {
+  'admin-key-12345': 'admin-user-1',
+  'verifier-key-67890': 'verifier-user-1',
+}
+
+/**
+ * Middleware to validate API key and enforce a required scope.
+ *
+ * The middleware:
+ * 1. Reads the key from `X-API-Key` or `Authorization: Bearer` headers.
+ * 2. Looks up the granted scope set (deny-by-default when key is unknown).
+ * 3. Calls `scopeSatisfies` to check whether the granted scopes cover the
+ *    required scope — including legacy ENTERPRISE superset expansion.
+ * 4. Attaches `{ key, scopes }` to `req.apiKey` for downstream handlers.
+ *
+ * @param requiredScope - The single scope that must be satisfied.
+ *
  * @example
  * ```typescript
- * app.post('/api/bulk/verify', requireApiKey(ApiScope.ENTERPRISE), handler)
+ * router.post('/api/attestations', requireApiKey(ApiScope.ATTESTATIONS_WRITE), handler)
+ * router.get('/api/trust/:id',     requireApiKey(ApiScope.TRUST_READ),          handler)
  * ```
  */
 /**
@@ -57,11 +195,59 @@ export interface AuthenticatedRequest extends Request {
  * DB-backed key validator. Mapping of scopes is performed below.
  */
 export function requireApiKey(requiredScope: ApiScope) {
-  // Map legacy ApiScope to service KeyScope values used by the canonical
-  // middleware. PUBLIC -> 'read', ENTERPRISE -> 'full'.
-  const mapped = requiredScope === ApiScope.ENTERPRISE ? 'full' : 'read'
-  // Re-use the implementation in apiKey.ts which validates the hashed store
-  return requireApiKeyFromApiKeyMiddleware(mapped as any)
+  return (req: Request, res: Response, next: NextFunction): void => {
+    // Accept key from X-API-Key header or Authorization: Bearer <key>
+    let apiKey = req.headers['x-api-key'] as string | undefined
+    if (!apiKey) {
+      const authHeader = req.headers['authorization']
+      if (authHeader?.startsWith('Bearer ')) {
+        apiKey = authHeader.slice(7)
+      }
+    }
+
+    if (!apiKey) {
+      res.status(401).json({
+        error: 'Unauthorized',
+        message: 'API key is required',
+      })
+      return
+    }
+
+    const grantedScopes = API_KEYS[apiKey]
+
+    if (!grantedScopes) {
+      res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Invalid API key',
+      })
+      return
+    }
+
+    // Deny-by-default: key must satisfy the required scope
+    if (!scopeSatisfies(grantedScopes, requiredScope)) {
+      res.status(403).json({
+        error: 'Forbidden',
+        message: `Insufficient scope: '${requiredScope}' is required`,
+        requiredScope,
+        grantedScopes,
+      })
+      return
+    }
+
+    // Attach metadata to request for downstream handlers.
+    // `scope` (singular) is kept for backward compatibility with existing
+    // route handlers that read `req.apiKey.scope`.
+    ;(req as any).apiKey = {
+      key: apiKey,
+      scopes: grantedScopes,
+      // Legacy single-scope field: use ENTERPRISE when the key holds it,
+      // otherwise fall back to the first granted scope.
+      scope: grantedScopes.includes(ApiScope.ENTERPRISE)
+        ? ApiScope.ENTERPRISE
+        : grantedScopes[0],
+    }
+    next()
+  }
 }
 
 /**

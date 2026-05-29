@@ -13,6 +13,7 @@ import type {
   AttestationListResponse,
 } from '../types/attestation.js';
 import { NotFoundError } from '../lib/errors.js';
+import { requireApiKey, ApiScope } from '../middleware/auth.js';
 
 /**
  * Create and return an Express {@link Router} wired to the given
@@ -25,7 +26,7 @@ export function createAttestationRouter(repo: AttestationRepository): Router {
   const router = Router();
 
   // ── GET /api/attestations/:identity/count ────────────────────────────
-  router.get('/:identity/count', (req: Request, res: Response): void => {
+  router.get('/:identity/count', requireApiKey(ApiScope.ATTESTATIONS_READ), (req: Request, res: Response): void => {
     const { identity } = req.params;
     const includeRevoked = req.query.includeRevoked === 'true';
 
@@ -41,7 +42,7 @@ export function createAttestationRouter(repo: AttestationRepository): Router {
   });
 
   // ── GET /api/attestations/:identity ──────────────────────────────────
-  router.get('/:identity', (req: Request, res: Response, next): void => {
+  router.get('/:identity', requireApiKey(ApiScope.ATTESTATIONS_READ), (req: Request, res: Response, next): void => {
     const { identity } = req.params;
     const includeRevoked = req.query.includeRevoked === 'true';
 
@@ -69,7 +70,7 @@ export function createAttestationRouter(repo: AttestationRepository): Router {
   });
 
   // ── POST /api/attestations ───────────────────────────────────────────
-  router.post('/', (req: Request, res: Response, next): void => {
+  router.post('/', requireApiKey(ApiScope.ATTESTATIONS_WRITE), (req: Request, res: Response, next): void => {
     try {
       const { subject, verifier, weight, claim } = req.body as {
         subject: string;
@@ -86,7 +87,7 @@ export function createAttestationRouter(repo: AttestationRepository): Router {
   });
 
   // ── DELETE /api/attestations/:id ─────────────────────────────────────
-  router.delete('/:id', (req: Request, res: Response, next): void => {
+  router.delete('/:id', requireApiKey(ApiScope.ATTESTATIONS_WRITE), (req: Request, res: Response, next): void => {
     try {
       const result = repo.revoke(req.params.id);
       if (!result) {

@@ -12,6 +12,7 @@ import { createPayoutSchema } from '../schemas/index.js'
 import type { CreatePayoutInput } from '../schemas/index.js'
 import { pool } from '../db/pool.js'
 import { SettlementsRepository } from '../db/repositories/settlementsRepository.js'
+import { requireApiKey, ApiScope } from '../middleware/auth.js'
 
 /**
  * Creates the payouts router with idempotency protection.
@@ -29,14 +30,11 @@ export function createPayoutsRouter(): Router {
    * Creates a new payout record.
    * Protected by idempotency keys to prevent duplicate payouts on retries.
    *
-   * Issue #325: The body is now consumed as the fully-typed CreatePayoutInput
-   * inferred from createPayoutSchema via z.infer, removing the unsafe `as any` cast.
-   * - Amount precision/range is validated by the schema.
-   * - Status is restricted to the SettlementStatus enum.
-   * - settledAt is validated as ISO 8601 datetime (rejects invalid dates with 400).
+   * @requires payouts:write scope
    */
   router.post(
     '/',
+    requireApiKey(ApiScope.PAYOUTS_WRITE),
     idempotencyMiddleware(idempotencyRepo),
     validate({ body: createPayoutSchema }),
     async (req: Request, res: Response, next) => {
