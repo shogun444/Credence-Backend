@@ -1,12 +1,49 @@
-# Horizon Listener - Withdrawal Events
+# Horizon Listener - Bond and Withdrawal Events
 
-This document describes the Horizon withdrawal events listener implementation for the Credence Backend.
+This document describes the Horizon event listeners implementation for the Credence Backend, including durable cursor checkpointing for gap-free event processing.
 
 ## Overview
 
-The Horizon withdrawal events listener monitors Stellar blockchain for withdrawal transactions that affect bond states and updates the local bond records accordingly. It ensures consistency between on-chain state and the application database.
+The Horizon event listeners monitor the Stellar blockchain for bond creation and withdrawal transactions, maintaining consistency between on-chain state and the application database. With durable cursor checkpointing, the listeners can resume from their last processed event after any restart, crash, or redeploy, ensuring no events are silently dropped.
+
+## Key Features
+
+- **Durable Cursor Checkpointing** - Persists the last processed `paging_token` to database
+- **Gap-Free Resume** - Resumes from saved cursor after restart, crash, or redeploy
+- **Transactional Consistency** - Cursor updates are transactional with event processing
+- **Prometheus Metrics** - Exposes cursor lag and checkpoint timestamp metrics
+- **Multiple Stream Support** - Independent cursors for bond_creation, bond_withdrawal, and attestation streams
 
 ## Architecture
+
+### Cursor Checkpointing System
+
+The cursor checkpointing system ensures gap-free event processing across restarts:
+
+```
+┌─────────────────┐
+│ Horizon Stream  │
+│  (Stellar)      │
+└────────┬────────┘
+         │ events
+         ▼
+┌─────────────────┐
+│ Event Listener  │
+│ (Bond/Withdraw) │
+└────────┬────────┘
+         │
+         ├─► Process Event
+         │   (upsert identity/bond)
+         │
+         └─► Persist Cursor
+             (transactional)
+                 │
+                 ▼
+         ┌───────────────┐
+         │ horizon_cursors│
+         │     table      │
+         └───────────────┘
+```
 
 ### HorizonWithdrawalListener
 
@@ -14,23 +51,97 @@ The main class that handles Horizon event streaming and bond state updates:
 
 ```ts
 import { createHorizonWithdrawalListener } from '../listeners/horizonWithdrawalEvents.js'
+import { pool } from '../db/pool.js'
+import { replayService } from '../services/replay.js'
 
-const listener = createHorizonWithdrawalListener({
-  horizonUrl: 'https://horizon-testnet.stellar.org',
-  pollingInterval: 5000,
-  bondContractAddress: 'GABCD...'
-})
+const listener = createHorizonWithdrawalListener(
+  {
+    horizonUrl: 'https://horizon-testnet.stellar.org',
+    pollingInterval: 5000,
+    bondContractAddress: 'GABCD...'
+  },
+  pool,
+  replayService
+)
 
 await listener.start()
+```
+
+### Bond Creation Listener
+
+Subscribe to bond creation events with cursor checkpointing:
+
+```ts
+import { subscribeBondCreationEvents } from '../listeners/horizonBondEvents.js'
+import { pool } from '../db/pool.js'
+
+await subscribeBondCreationEvents(pool, (event) => {
+  console.log('Bond created:', event)
+})
 ```
 
 ### Key Components
 
 - **Connection Management** - Handles Horizon server connection and reconnection
-- **Event Polling** - Polls Horizon for new withdrawal operations
-- **Bond State Updates** - Updates bond records based on withdrawal amounts
+- **Event Polling** - Polls Horizon for new operations
+- **Cursor Persistence** - Saves paging_token after each successful event
+- **Bond State Updates** - Updates bond records based on events
 - **Score Snapshots** - Creates score history snapshots for significant withdrawals
 - **Error Handling** - Graceful handling of API errors and network issues
+- **Metrics Emission** - Exposes cursor lag and checkpoint metrics
+
+## Cursor Checkpointing
+
+### Database Schema
+
+The `horizon_cursors` table stores durable checkpoints:
+
+```sql
+CREATE TABLE horizon_cursors (
+  stream_name       TEXT        PRIMARY KEY,
+  paging_token      TEXT        NOT NULL,
+  last_checkpoint   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+### Stream Names
+
+- `bond_creation` - Bond creation events
+- `bond_withdrawal` - Bond withdrawal events
+- `attestation` - Attestation events
+
+### Cursor Lifecycle
+
+1. **First Boot** - No saved cursor exists, starts from `'now'`
+2. **Event Processing** - Processes event and updates database
+3. **Cursor Persistence** - Saves `paging_token` transactionally
+4. **Restart** - Loads saved cursor and resumes from that point
+5. **Gap-Free Replay** - Processes all events since last checkpoint
+
+### CursorRepository API
+
+```ts
+import { CursorRepository } from '../db/repositories/cursorRepository.js'
+import { pool } from '../db/pool.js'
+
+const cursorRepo = new CursorRepository(pool)
+
+// Load saved cursor
+const cursor = await cursorRepo.findByStreamName('bond_creation')
+// Returns: { streamName, pagingToken, lastCheckpoint, ... } or null
+
+// Save cursor checkpoint
+await cursorRepo.upsert({
+  streamName: 'bond_creation',
+  pagingToken: '12345678901234'
+})
+
+// Get cursor lag in seconds
+const lag = await cursorRepo.getCursorLag('bond_creation')
+// Returns: number of seconds since last checkpoint
+```
 
 ## Configuration
 
@@ -46,7 +157,7 @@ interface HorizonListenerConfig {
     issuer: string
   }
   pollingInterval?: number        // Polling interval in milliseconds
-  lastCursor?: string            // Resume position
+  lastCursor?: string            // Initial cursor (overridden by saved cursor)
 }
 ```
 
@@ -220,6 +331,33 @@ The listener is designed to continue operating even when:
 
 ## Monitoring
 
+### Prometheus Metrics
+
+The listeners expose Prometheus metrics for cursor monitoring:
+
+```
+# Cursor lag (seconds since last checkpoint)
+horizon_listener_cursor_lag_seconds{stream_name="bond_creation"} 5
+
+# Last checkpoint timestamp (Unix timestamp)
+horizon_listener_last_checkpoint_timestamp{stream_name="bond_creation"} 1704067200
+```
+
+### Grafana Dashboard
+
+Monitor cursor health with these queries:
+
+```promql
+# Cursor lag by stream
+horizon_listener_cursor_lag_seconds
+
+# Alert if cursor lag exceeds 5 minutes
+horizon_listener_cursor_lag_seconds > 300
+
+# Time since last checkpoint
+time() - horizon_listener_last_checkpoint_timestamp
+```
+
 ### Health Checks
 
 Monitor listener health with built-in statistics:
@@ -235,14 +373,17 @@ console.log(`Polling interval: ${stats.pollingInterval}ms`)
 
 The listener provides detailed logging:
 
-- **Start/stop events** - Listener lifecycle events
-- **Event processing** - Number of events processed
-- **Errors** - Detailed error information
+- **Start/stop events** - Listener lifecycle events with cursor position
+- **Event processing** - Event ID and cursor after each event
+- **Cursor persistence** - Confirmation of cursor saves
+- **Errors** - Detailed error information with cursor context
 - **Performance** - Processing times and rates
 
 ### Metrics to Track
 
 - Events processed per minute
+- Cursor lag (seconds)
+- Cursor checkpoint frequency
 - Bond update success rate
 - API error rate
 - Processing latency
@@ -271,6 +412,15 @@ npm run test:coverage
 
 ## Security Considerations
 
+### Cursor Validation
+
+The `CursorRepository` validates `paging_token` format before persisting:
+
+- **Numeric tokens** - Must match `/^\d+$/` pattern
+- **Special tokens** - Only `'now'` is allowed
+- **SQL injection** - Parameterized queries prevent injection
+- **Invalid tokens** - Rejected with clear error message
+
 ### Network Security
 
 - **HTTPS connections** - Always use HTTPS for Horizon
@@ -284,6 +434,7 @@ npm run test:coverage
 - **Access control** - Restrict database access
 - **Audit logging** - Log all bond state changes
 - **Data integrity** - Verify transaction signatures
+- **Cursor integrity** - Validate cursor format before persistence
 
 ## Best Practices
 
@@ -316,21 +467,36 @@ npm run test:coverage
 - Check Horizon URL connectivity
 - Verify network passphrase
 - Review configuration values
+- Check database connectivity for cursor loading
 
 **Missing bond updates**
 - Verify bond contract address
 - Check database connectivity
 - Review withdrawal detection logic
+- Check cursor position: `SELECT * FROM horizon_cursors`
+
+**Cursor not advancing**
+- Check for event processing errors in logs
+- Verify database write permissions
+- Review cursor validation errors
+- Check for transaction rollbacks
+
+**Events being replayed**
+- Cursor may not be persisting (check logs)
+- Database transaction may be rolling back
+- Verify cursor upsert is called after event processing
 
 **Performance issues**
 - Reduce polling interval
 - Check database query performance
 - Monitor Horizon API usage
+- Review cursor persistence overhead
 
 **High error rates**
 - Review Horizon API status
 - Check network connectivity
 - Verify rate limit compliance
+- Check cursor validation errors
 
 ### Debug Mode
 
@@ -344,56 +510,143 @@ process.env.DEBUG = 'horizon-listener'
 await listener.start()
 ```
 
+### Cursor Inspection
+
+Inspect cursor state directly:
+
+```sql
+-- View all cursors
+SELECT * FROM horizon_cursors ORDER BY last_checkpoint DESC;
+
+-- Check specific stream cursor
+SELECT * FROM horizon_cursors WHERE stream_name = 'bond_creation';
+
+-- Calculate cursor lag
+SELECT 
+  stream_name,
+  paging_token,
+  last_checkpoint,
+  EXTRACT(EPOCH FROM (NOW() - last_checkpoint)) AS lag_seconds
+FROM horizon_cursors;
+
+-- Reset cursor (use with caution!)
+DELETE FROM horizon_cursors WHERE stream_name = 'bond_creation';
+```
+
 ## Integration Examples
 
-### Basic Integration
+### Basic Integration with Cursor Checkpointing
 
 ```ts
 import { createHorizonWithdrawalListener } from './listeners/horizonWithdrawalEvents.js'
+import { subscribeBondCreationEvents } from './listeners/horizonBondEvents.js'
+import { pool } from './db/pool.js'
+import { replayService } from './services/replay.js'
 
-async function startListener() {
-  const listener = createHorizonWithdrawalListener({
-    horizonUrl: process.env.HORIZON_URL!,
-    pollingInterval: 5000
+async function startListeners() {
+  // Start withdrawal listener
+  const withdrawalListener = createHorizonWithdrawalListener(
+    {
+      horizonUrl: process.env.HORIZON_URL!,
+      pollingInterval: 5000
+    },
+    pool,
+    replayService
+  )
+
+  // Start bond creation listener
+  await subscribeBondCreationEvents(pool, (event) => {
+    console.log('Bond created:', event)
   })
 
   // Handle graceful shutdown
   process.on('SIGINT', async () => {
-    console.log('Stopping Horizon listener...')
-    await listener.stop()
+    console.log('Stopping Horizon listeners...')
+    await withdrawalListener.stop()
+    await pool.end()
     process.exit(0)
   })
 
-  await listener.start()
-  console.log('Horizon listener started')
+  await withdrawalListener.start()
+  console.log('Horizon listeners started with cursor checkpointing')
 }
 
-startListener().catch(console.error)
+startListeners().catch(console.error)
 ```
 
-### Advanced Configuration
+### Advanced Configuration with Monitoring
 
 ```ts
-const listener = createHorizonWithdrawalListener({
-  horizonUrl: 'https://horizon.stellar.org',
-  networkPassphrase: 'Public Global Stellar Network ; September 2015',
-  bondContractAddress: 'GABCD...',
-  withdrawalAsset: {
-    code: 'USDC',
-    issuer: 'GA5ZSEJYAAO...Issuer...'
-  },
-  pollingInterval: 10000,
-  lastCursor: await loadLastCursor()
-})
+import { CursorRepository } from './db/repositories/cursorRepository.js'
 
-// Monitor listener health
-setInterval(() => {
+const cursorRepo = new CursorRepository(pool)
+
+const listener = createHorizonWithdrawalListener(
+  {
+    horizonUrl: 'https://horizon.stellar.org',
+    networkPassphrase: 'Public Global Stellar Network ; September 2015',
+    bondContractAddress: 'GABCD...',
+    withdrawalAsset: {
+      code: 'USDC',
+      issuer: 'GA5ZSEJYAAO...Issuer...'
+    },
+    pollingInterval: 10000
+  },
+  pool,
+  replayService
+)
+
+// Monitor listener health and cursor lag
+setInterval(async () => {
   const stats = listener.getStats()
+  const lag = await cursorRepo.getCursorLag('bond_withdrawal')
+  
   console.log('Listener stats:', stats)
+  console.log('Cursor lag (seconds):', lag)
+  
+  // Alert if lag exceeds threshold
+  if (lag && lag > 300) {
+    console.error('WARNING: Cursor lag exceeds 5 minutes!')
+  }
 }, 60000)
 ```
 
-This Horizon listener provides a robust foundation for maintaining bond state consistency with the Stellar blockchain while ensuring high availability and error resilience.
+### Manual Cursor Management
+
+```ts
+// Reset cursor to specific position (e.g., after data recovery)
+await cursorRepo.upsert({
+  streamName: 'bond_creation',
+  pagingToken: '12345678901234'
+})
+
+// Delete cursor to restart from 'now' (use with caution!)
+await cursorRepo.delete('bond_creation')
+
+// View all cursors
+const allCursors = await cursorRepo.findAll()
+console.log('All cursors:', allCursors)
+```
+
+## Migration
+
+To enable cursor checkpointing on an existing deployment:
+
+1. **Run Migration** - Apply migration `007_create_horizon_cursors.ts`
+2. **Deploy Updated Code** - Deploy listeners with cursor support
+3. **First Boot** - Listeners will start from `'now'` (no saved cursor)
+4. **Subsequent Restarts** - Listeners resume from saved cursor
+
+```bash
+# Run migration
+npm run migrate
+
+# Deploy updated code
+npm run build
+npm start
+```
+
+This Horizon listener provides a robust foundation for maintaining bond state consistency with the Stellar blockchain while ensuring high availability, error resilience, and gap-free event processing through durable cursor checkpointing.
 # Horizon Bond Creation Listener
 
 This module listens for bond creation events from Stellar/Horizon and syncs identity and bond state to the database.
