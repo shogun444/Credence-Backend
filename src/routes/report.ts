@@ -1,21 +1,19 @@
-import { Router, Request, Response } from 'express'
-import { requireApiKey, ApiScope } from '../middleware/auth.js'
-import { ReportService } from '../services/reportService.js'
-import { ReportRepository } from '../db/repositories/reportRepository.js'
-import { ReportStorageService } from '../services/reportStorage.js'
-import { pool } from '../db/pool.js'
+import { Router, Request, Response } from "express";
+import { requireApiKey, ApiScope } from "../middleware/auth.js";
+import { ReportService } from "../services/reportService.js";
+import { ReportRepository } from "../db/repositories/reportRepository.js";
+import { ReportStorageService } from "../services/reportStorage.js";
+import { pool } from "../db/pool.js";
+import { validate } from "../middleware/validate.js";
+import {
+  createReportBodySchema,
+  type CreateReportBody,
+} from "../schemas/report.js";
 
-const router = Router()
-const reportRepository = new ReportRepository(pool)
-const reportStorage = new ReportStorageService()
-const reportService = new ReportService(reportRepository, reportStorage)
-
-/**
- * Request body schema for report generation
- */
-interface ReportRequest {
-  type: string
-}
+const router = Router();
+const reportRepository = new ReportRepository(pool);
+const reportStorage = new ReportStorageService();
+const reportService = new ReportService(reportRepository, reportStorage);
 
 /**
  * POST /api/reports
@@ -29,38 +27,31 @@ interface ReportRequest {
  * @returns {object} Job information with status 'queued'
  */
 router.post(
-  '/',
-  requireApiKey(ApiScope.REPORTS_GENERATE),
+  "/",
+  requireApiKey(ApiScope.ENTERPRISE),
+  validate({ body: createReportBodySchema }),
   async (req: Request, res: Response): Promise<void> => {
     try {
-      const { type } = req.body as ReportRequest
+      const { type } = req.validated!.body! as CreateReportBody;
 
-      if (!type || typeof type !== 'string') {
-        res.status(400).json({
-          error: 'InvalidRequest',
-          message: 'Report type is required and must be a string',
-        })
-        return
-      }
-
-      const tenantId = (req as any).apiKey?.tenantId ?? 'default'
-      const job = await reportService.startReportGeneration(type, tenantId)
+      const tenantId = (req as any).apiKey?.tenantId ?? "default";
+      const job = await reportService.startReportGeneration(type, tenantId);
 
       res.status(202).json({
         jobId: job.id,
         status: job.status,
         type: job.type,
         createdAt: job.createdAt,
-      })
+      });
     } catch (error) {
-      console.error('Report generation error:', error)
+      console.error("Report generation error:", error);
       res.status(500).json({
-        error: 'InternalServerError',
-        message: 'An unexpected error occurred while starting the report job',
-      })
+        error: "InternalServerError",
+        message: "An unexpected error occurred while starting the report job",
+      });
     }
-  }
-)
+  },
+);
 
 /**
  * GET /api/reports/:jobId
@@ -74,31 +65,31 @@ router.post(
  * @returns {object} Job status and artifact availability
  */
 router.get(
-  '/:jobId',
-  requireApiKey(ApiScope.REPORTS_GENERATE),
+  "/:jobId",
+  requireApiKey(ApiScope.ENTERPRISE),
   async (req: Request, res: Response): Promise<void> => {
     try {
-      const { jobId } = req.params
+      const { jobId } = req.params;
 
       if (!jobId) {
         res.status(400).json({
-          error: 'InvalidRequest',
-          message: 'Job ID is required',
-        })
-        return
+          error: "InvalidRequest",
+          message: "Job ID is required",
+        });
+        return;
       }
 
-      const job = await reportService.getReportStatus(jobId)
+      const job = await reportService.getReportStatus(jobId);
 
       if (!job) {
         res.status(404).json({
-          error: 'NotFound',
+          error: "NotFound",
           message: `Report job ${jobId} not found`,
-        })
-        return
+        });
+        return;
       }
 
-      const signedUrl = reportService.getSignedDownloadUrl(job)
+      const signedUrl = reportService.getSignedDownloadUrl(job);
 
       res.status(200).json({
         jobId: job.id,
@@ -108,16 +99,16 @@ router.get(
         failureReason: job.failureReason,
         createdAt: job.createdAt,
         updatedAt: job.updatedAt,
-      })
+      });
     } catch (error) {
-      console.error('Report status query error:', error)
+      console.error("Report status query error:", error);
       res.status(500).json({
-        error: 'InternalServerError',
-        message: 'An unexpected error occurred while fetching report status',
-      })
+        error: "InternalServerError",
+        message: "An unexpected error occurred while fetching report status",
+      });
     }
-  }
-)
+  },
+);
 
 /**
  * GET /api/reports/download/:key
@@ -130,42 +121,45 @@ router.get(
  * @query {string} signature - HMAC-SHA256 signature
  */
 router.get(
-  '/download/:key',
+  "/download/:key",
   async (req: Request, res: Response): Promise<void> => {
     try {
-      const key = decodeURIComponent(req.params.key)
-      const expires = parseInt(req.query.expires as string, 10)
-      const signature = req.query.signature as string
+      const key = decodeURIComponent(req.params.key);
+      const expires = parseInt(req.query.expires as string, 10);
+      const signature = req.query.signature as string;
 
       if (!expires || !signature) {
         res.status(400).json({
-          error: 'InvalidRequest',
-          message: 'Signed URL requires expires and signature query parameters',
-        })
-        return
+          error: "InvalidRequest",
+          message: "Signed URL requires expires and signature query parameters",
+        });
+        return;
       }
 
-      const data = reportStorage.verifyAndRetrieve(key, expires, signature)
+      const data = reportStorage.verifyAndRetrieve(key, expires, signature);
 
       if (!data) {
         res.status(401).json({
-          error: 'Unauthorized',
-          message: 'Invalid or expired signed URL',
-        })
-        return
+          error: "Unauthorized",
+          message: "Invalid or expired signed URL",
+        });
+        return;
       }
 
-      res.setHeader('Content-Type', 'application/pdf')
-      res.setHeader('Content-Disposition', `attachment; filename="${key.split('/').pop() || 'report.pdf'}"`)
-      res.status(200).send(data)
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${key.split("/").pop() || "report.pdf"}"`,
+      );
+      res.status(200).send(data);
     } catch (error) {
-      console.error('Report download error:', error)
+      console.error("Report download error:", error);
       res.status(500).json({
-        error: 'InternalServerError',
-        message: 'An unexpected error occurred while downloading the report',
-      })
+        error: "InternalServerError",
+        message: "An unexpected error occurred while downloading the report",
+      });
     }
-  }
-)
+  },
+);
 
-export default router
+export default router;
