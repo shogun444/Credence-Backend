@@ -1,5 +1,8 @@
 import { Request, Response, NextFunction } from 'express'
 import type { StoredApiKey } from '../services/apiKeys.js'
+import { validateApiKey } from '../services/apiKeys.js'
+import { userRepo } from '../repositories/userRepository.js'
+import { requireApiKey as requireApiKeyFromApiKeyMiddleware } from './apiKey.js'
 
 /**
  * API key scopes for authorization
@@ -32,43 +35,10 @@ export interface AuthenticatedRequest extends Request {
   }
 }
 
-/**
- * Mock API key store - in production, use database or secret manager
- * Format: { key: scope }
- */
-const API_KEYS: Record<string, ApiScope> = {
-  'test-enterprise-key-12345': ApiScope.ENTERPRISE,
-  'test-public-key-67890': ApiScope.PUBLIC,
-}
-
-/**
- * Mock user store - in production, use database or identity provider
- * Format: { userId: { id, role, email, apiKey } }
- */
-export const MOCK_USERS: Record<string, { id: string; role: UserRole; email: string; apiKey: string; tenantId: string }> = {
-  'admin-user-1': {
-    id: 'admin-user-1',
-    role: UserRole.SUPER_ADMIN,
-    email: 'admin@credence.org',
-    apiKey: 'admin-key-12345',
-    tenantId: 'tenant-admin',
-  },
-  'verifier-user-1': {
-    id: 'verifier-user-1',
-    role: UserRole.VERIFIER,
-    email: 'verifier@credence.org',
-    apiKey: 'verifier-key-67890',
-    tenantId: 'tenant-verifier',
-  },
-}
-
-/**
- * Mock API key to user mapping - in production, use database
- */
-export const API_KEY_TO_USER: Record<string, string> = {
-  'admin-key-12345': 'admin-user-1',
-  'verifier-key-67890': 'verifier-user-1',
-}
+// Note: legacy in-source mocks were removed. Keys are validated against the
+// persisted hashed store via `validateApiKey`. User resolution is delegated
+// to `userRepo` so records are sourced from a single place (tests may seed
+// the in-memory repo).
 
 /**
  * Middleware to validate API key and check required scope
@@ -81,41 +51,17 @@ export const API_KEY_TO_USER: Record<string, string> = {
  * app.post('/api/bulk/verify', requireApiKey(ApiScope.ENTERPRISE), handler)
  * ```
  */
+/**
+ * Adapter to the canonical `requireApiKey` implemented in `src/middleware/apiKey.ts`.
+ * Keeps the old `ApiScope` enum surface but delegates validation to the
+ * DB-backed key validator. Mapping of scopes is performed below.
+ */
 export function requireApiKey(requiredScope: ApiScope) {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    const apiKey = req.headers['x-api-key'] as string
-
-    if (!apiKey) {
-      res.status(401).json({
-        error: 'Unauthorized',
-        message: 'API key is required',
-      })
-      return
-    }
-
-    const scope = API_KEYS[apiKey]
-
-    if (!scope) {
-      res.status(401).json({
-        error: 'Unauthorized',
-        message: 'Invalid API key',
-      })
-      return
-    }
-
-    // Check if the key has sufficient scope
-    if (requiredScope === ApiScope.ENTERPRISE && scope !== ApiScope.ENTERPRISE) {
-      res.status(403).json({
-        error: 'Forbidden',
-        message: 'Enterprise API key required',
-      })
-      return
-    }
-
-    // Preserve legacy metadata shape expected by route tests.
-    ;(req as any).apiKey = { key: apiKey, scope }
-    next()
-  }
+  // Map legacy ApiScope to service KeyScope values used by the canonical
+  // middleware. PUBLIC -> 'read', ENTERPRISE -> 'full'.
+  const mapped = requiredScope === ApiScope.ENTERPRISE ? 'full' : 'read'
+  // Re-use the implementation in apiKey.ts which validates the hashed store
+  return requireApiKeyFromApiKeyMiddleware(mapped as any)
 }
 
 /**
@@ -174,10 +120,10 @@ export function requireUserAuth(req: Request, res: Response, next: NextFunction)
     return
   }
 
-  const apiKey = authHeader.substring(7) // Remove 'Bearer ' prefix
-  const userId = API_KEY_TO_USER[apiKey]
+  const raw = authHeader.substring(7) // Remove 'Bearer ' prefix
 
-  if (!userId) {
+  const key = validateApiKey(raw)
+  if (!key) {
     res.status(401).json({
       error: 'Unauthorized',
       message: 'Invalid or expired token',
@@ -185,7 +131,10 @@ export function requireUserAuth(req: Request, res: Response, next: NextFunction)
     return
   }
 
-  const user = MOCK_USERS[userId]
+  // Resolve the user record from the repository. Tests and runtime should
+  // seed `userRepo` with the expected records. If not found, treat as
+  // unauthorized rather than silently creating a user.
+  const user = userRepo.findById(key.ownerId)
   if (!user) {
     res.status(401).json({
       error: 'Unauthorized',
@@ -194,9 +143,10 @@ export function requireUserAuth(req: Request, res: Response, next: NextFunction)
     return
   }
 
+  authReq.apiKey = key
   authReq.user = {
     id: user.id,
-    role: user.role,
+    role: user.role as UserRole,
     email: user.email,
     tenantId: user.tenantId,
   }

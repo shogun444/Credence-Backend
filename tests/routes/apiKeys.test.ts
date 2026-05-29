@@ -18,11 +18,17 @@ import { ApiKeyRotationService } from '../../src/services/apiKeyRotationService.
 import { InMemoryAuditLogsRepository } from '../../src/db/repositories/auditLogsRepository.js'
 import { AuditLogService } from '../../src/services/audit/index.js'
 import { _resetStore } from '../../src/services/apiKeys.js'
+import { userRepo } from '../../src/repositories/userRepository.js'
+
+function createUserAndToken(repo: InMemoryApiKeyRepository, id: string, role: 'super-admin' | 'verifier' | 'admin' | 'user') {
+  userRepo.upsert({ id, role, email: `${id}@example.test`, tenantId: `tenant-${id}` })
+  const created = repo.create(id)
+  return `Bearer ${created.key}`
+}
 
 // ── Auth header helpers ──────────────────────────────────────────────────────
-// Values come from the mock store in src/middleware/auth.ts
-const ADMIN_TOKEN = 'Bearer admin-key-12345'
-const VERIFIER_TOKEN = 'Bearer verifier-key-67890'
+// Tokens will be generated against the in-memory key store and returned by
+// `buildApp()` so tests use DB-backed keys rather than in-source mocks.
 
 // ── Lightweight HTTP helper (no supertest dependency) ────────────────────────
 
@@ -87,11 +93,13 @@ function buildApp() {
 
 beforeEach(() => {
   _resetStore()
+  userRepo._reset()
 })
 
 describe('POST /api/integrations/keys', () => {
   it('issues a new key with default scope and tier', async () => {
-    const { app } = buildApp()
+    const { app, repo } = buildApp()
+    const ADMIN_TOKEN = createUserAndToken(repo, 'admin-1', 'super-admin')
     const res = await makeRequest(app, 'POST', '/api/integrations/keys', {
       auth: ADMIN_TOKEN,
     })
@@ -106,7 +114,8 @@ describe('POST /api/integrations/keys', () => {
   })
 
   it('respects explicit scope and tier in the request body', async () => {
-    const { app } = buildApp()
+    const { app, repo } = buildApp()
+    const ADMIN_TOKEN = createUserAndToken(repo, 'admin-1', 'super-admin')
     const res = await makeRequest(app, 'POST', '/api/integrations/keys', {
       auth: ADMIN_TOKEN,
       body: { scope: 'full', tier: 'enterprise' },
@@ -119,7 +128,8 @@ describe('POST /api/integrations/keys', () => {
   })
 
   it('rejects an invalid scope with 400', async () => {
-    const { app } = buildApp()
+    const { app, repo } = buildApp()
+    const ADMIN_TOKEN = createUserAndToken(repo, 'admin-1', 'super-admin')
     const res = await makeRequest(app, 'POST', '/api/integrations/keys', {
       auth: ADMIN_TOKEN,
       body: { scope: 'superuser' },
@@ -129,7 +139,8 @@ describe('POST /api/integrations/keys', () => {
   })
 
   it('rejects an invalid tier with 400', async () => {
-    const { app } = buildApp()
+    const { app, repo } = buildApp()
+    const ADMIN_TOKEN = createUserAndToken(repo, 'admin-1', 'super-admin')
     const res = await makeRequest(app, 'POST', '/api/integrations/keys', {
       auth: ADMIN_TOKEN,
       body: { tier: 'platinum' },
@@ -139,7 +150,8 @@ describe('POST /api/integrations/keys', () => {
   })
 
   it('returns 401 when no auth header is provided', async () => {
-    const { app } = buildApp()
+    const { app, repo } = buildApp()
+    const ADMIN_TOKEN = createUserAndToken(repo, 'admin-1', 'super-admin')
     const res = await makeRequest(app, 'POST', '/api/integrations/keys')
 
     expect(res.status).toBe(401)
@@ -158,7 +170,8 @@ describe('POST /api/integrations/keys', () => {
 
 describe('GET /api/integrations/keys', () => {
   it('returns an empty array when the user has no keys', async () => {
-    const { app } = buildApp()
+    const { app, repo } = buildApp()
+    const ADMIN_TOKEN = createUserAndToken(repo, 'admin-1', 'super-admin')
     const res = await makeRequest(app, 'GET', '/api/integrations/keys', {
       auth: ADMIN_TOKEN,
     })
@@ -169,7 +182,8 @@ describe('GET /api/integrations/keys', () => {
   })
 
   it('lists only keys belonging to the requesting user', async () => {
-    const { app } = buildApp()
+    const { app, repo } = buildApp()
+    const ADMIN_TOKEN = createUserAndToken(repo, 'admin-1', 'super-admin')
 
     // Issue one key as admin and one as verifier
     await makeRequest(app, 'POST', '/api/integrations/keys', { auth: ADMIN_TOKEN })
@@ -183,7 +197,8 @@ describe('GET /api/integrations/keys', () => {
   })
 
   it('returns 401 when unauthenticated', async () => {
-    const { app } = buildApp()
+    const { app, repo } = buildApp()
+    const ADMIN_TOKEN = createUserAndToken(repo, 'admin-1', 'super-admin')
     const res = await makeRequest(app, 'GET', '/api/integrations/keys')
     expect(res.status).toBe(401)
   })
@@ -191,7 +206,8 @@ describe('GET /api/integrations/keys', () => {
 
 describe('POST /api/integrations/keys/:id/rotate', () => {
   it('rotates a key successfully and returns a new raw key', async () => {
-    const { app } = buildApp()
+    const { app, repo } = buildApp()
+    const ADMIN_TOKEN = createUserAndToken(repo, 'admin-1', 'super-admin')
 
     // Issue a key first
     const createRes = await makeRequest(app, 'POST', '/api/integrations/keys', {
@@ -217,7 +233,8 @@ describe('POST /api/integrations/keys/:id/rotate', () => {
   })
 
   it('preserves the original scope and tier after rotation', async () => {
-    const { app } = buildApp()
+    const { app, repo } = buildApp()
+    const ADMIN_TOKEN = createUserAndToken(repo, 'admin-1', 'super-admin')
 
     const createRes = await makeRequest(app, 'POST', '/api/integrations/keys', {
       auth: ADMIN_TOKEN,
@@ -238,7 +255,8 @@ describe('POST /api/integrations/keys/:id/rotate', () => {
   })
 
   it('returns 409 when the key has already been revoked', async () => {
-    const { app } = buildApp()
+    const { app, repo } = buildApp()
+    const ADMIN_TOKEN = createUserAndToken(repo, 'admin-1', 'super-admin')
 
     const createRes = await makeRequest(app, 'POST', '/api/integrations/keys', {
       auth: ADMIN_TOKEN,
@@ -262,7 +280,8 @@ describe('POST /api/integrations/keys/:id/rotate', () => {
   })
 
   it('returns 404 for an unknown key ID', async () => {
-    const { app } = buildApp()
+    const { app, repo } = buildApp()
+    const ADMIN_TOKEN = createUserAndToken(repo, 'admin-1', 'super-admin')
     const res = await makeRequest(
       app,
       'POST',

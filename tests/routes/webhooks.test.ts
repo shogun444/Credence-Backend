@@ -12,6 +12,14 @@ import { MemoryWebhookStore } from '../../src/services/webhooks/memoryStore.js'
 import { AuditLogService } from '../../src/services/audit/index.js'
 import { createWebhookRouter } from '../../src/routes/webhooks.js'
 import type { WebhookConfig } from '../../src/services/webhooks/types.js'
+import { userRepo } from '../../src/repositories/userRepository.js'
+import { generateApiKey, _resetStore } from '../../src/services/apiKeys.js'
+
+const makeTokenFor = (id: string, role: 'super-admin' | 'verifier') => {
+  userRepo.upsert({ id, role, email: `${id}@example.test`, tenantId: `tenant-${id}` })
+  const created = generateApiKey(id, 'full')
+  return `Bearer ${created.key}`
+}
 
 // ── Lightweight fetch helper ──────────────────────────────────────────────
 
@@ -56,8 +64,8 @@ async function request(
 
 // ── Test data ─────────────────────────────────────────────────────────────
 
-const ADMIN_BEARER = 'Bearer admin-key-12345'
-const VERIFIER_BEARER = 'Bearer verifier-key-67890'
+let ADMIN_BEARER = ''
+let VERIFIER_BEARER = ''
 
 const SEED_WEBHOOK: WebhookConfig = {
   id: 'wh-test-001',
@@ -76,6 +84,8 @@ describe('Webhook Routes', () => {
   const BASE = '/api/webhooks'
 
   beforeEach(async () => {
+    _resetStore()
+    userRepo._reset()
     store = new MemoryWebhookStore()
     audit = new AuditLogService()
     app = express()
@@ -83,7 +93,14 @@ describe('Webhook Routes', () => {
     app.use(BASE, createWebhookRouter(store, audit))
 
     await store.set({ ...SEED_WEBHOOK })
+    ADMIN_BEARER = makeTokenFor('admin-1', 'super-admin')
+    VERIFIER_BEARER = makeTokenFor('verifier-1', 'verifier')
   })
+
+  // Helper to mount app with auth repo when needed
+  function withAuth(repo?: InMemoryApiKeyRepository) {
+    return { app, repo }
+  }
 
   // ═══════════════════════════════════════════════════════════════════════
   // POST /:webhookId/rotate-secret
