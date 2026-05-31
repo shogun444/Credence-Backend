@@ -16,7 +16,7 @@ import {
   type Attestation,
   type CreateAttestationInput,
 } from '../db/repositories/attestationsRepository.js'
-import { pool } from '../db/pool.js'
+import { pool, withReplica } from '../db/pool.js'
 import { TransactionManager } from '../db/transaction.js'
 import { outboxEmitter, type OutboxEventEmitter } from '../db/outbox/index.js'
 import { AttestationCacheService } from '../services/attestationCacheService.js'
@@ -156,9 +156,13 @@ export function createAttestationRouter(
         const { address } = req.validated!.params! as { address: string }
         const normalizedAddress = normalizeAddress(address)
         const { page, limit, offset } = parsePaginationParams(req.query as Record<string, unknown>)
-        const result = await cacheService.getAttestationsBySubjectPage(normalizedAddress, {
-          offset,
-          limit,
+        const result = await withReplica(async (client) => {
+          const reqRepo = deps.repository ?? new AttestationsRepository(client)
+          const reqCache = deps.cacheService ?? new AttestationCacheService(reqRepo)
+          return await reqCache.getAttestationsBySubjectPage(normalizedAddress, {
+            offset,
+            limit,
+          })
         })
 
         res.json({
