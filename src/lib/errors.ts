@@ -8,6 +8,7 @@ export enum ErrorCode {
   FIELD_REQUIRED = 'field_required',
   INVALID_FORMAT = 'invalid_format',
   INVALID_ADDRESS = 'invalid_address',
+  INVALID_STELLAR_ADDRESS = 'invalid_stellar_address',
   INSUFFICIENT_FUNDS = 'insufficient_funds',
   UNAUTHORIZED = 'unauthorized',
   FORBIDDEN = 'forbidden',
