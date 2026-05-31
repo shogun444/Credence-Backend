@@ -1,6 +1,5 @@
 // Repository for request snapshots
 import { PoolClient } from 'pg';
-import { sql } from 'slonik';
 
 export class RequestSnapshotsRepository {
   constructor(private readonly client: PoolClient) {}
@@ -15,19 +14,21 @@ export class RequestSnapshotsRepository {
   }): Promise<void> {
     const { requestId, method, path, headers, body, snapshot } = params;
     await this.client.query(
-      sql`
-        INSERT INTO request_snapshots (request_id, method, path, headers, body, snapshot)
-        VALUES (${requestId}, ${method}, ${path}, ${JSON.stringify(headers)}::jsonb, ${JSON.stringify(body)}::jsonb, ${JSON.stringify(snapshot)}::jsonb)
-        ON CONFLICT (request_id) DO UPDATE SET method = EXCLUDED.method, path = EXCLUDED.path, headers = EXCLUDED.headers, body = EXCLUDED.body, snapshot = EXCLUDED.snapshot;
       `
+      INSERT INTO request_snapshots (request_id, method, path, headers, body, snapshot)
+      VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb)
+      ON CONFLICT (request_id) DO UPDATE SET method = EXCLUDED.method, path = EXCLUDED.path, headers = EXCLUDED.headers, body = EXCLUDED.body, snapshot = EXCLUDED.snapshot;
+      `,
+      [requestId, method, path, JSON.stringify(headers), JSON.stringify(body), JSON.stringify(snapshot)]
     );
   }
 
   async findById(requestId: string): Promise<any | null> {
     const { rows } = await this.client.query(
-      sql`
-        SELECT * FROM request_snapshots WHERE request_id = ${requestId}
       `
+      SELECT * FROM request_snapshots WHERE request_id = $1
+      `,
+      [requestId]
     );
     return rows[0] ?? null;
   }
@@ -35,9 +36,10 @@ export class RequestSnapshotsRepository {
   // Cleanup old snapshots (TTL 14 days)
   async deleteOlderThan(days: number = 14): Promise<void> {
     await this.client.query(
-      sql`
-        DELETE FROM request_snapshots WHERE created_at < now() - interval '${days} days'
       `
+      DELETE FROM request_snapshots WHERE created_at < now() - interval '1 day' * $1
+      `,
+      [days]
     );
   }
 }
