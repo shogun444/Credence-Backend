@@ -54,7 +54,8 @@ app.get('/metrics', async (_req, res) => {
 app.use(metricsMiddleware)
 app.use(compressionMetricsMiddleware)
 app.use(compressionMiddleware)
-app.use(express.json())
+import { captureSnapshot } from './middleware/captureSnapshot.js';
+app.use(captureSnapshot);
 
 app.use('/.well-known/jwks.json', createJwksRouter())
 
