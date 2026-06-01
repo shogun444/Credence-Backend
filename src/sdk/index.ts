@@ -1,4 +1,5 @@
-export { CredenceClient, CredenceError } from './client.js'
+// REST/HTTP client
+export { CredenceClient } from './client.js'
 export {
   CredenceConfig,
   CredenceApiError,
@@ -8,39 +9,15 @@ export {
   AttestationsResponse,
   VerificationProof,
 } from './types.js'
+
+// Internal gRPC client (Connect-RPC)
+// Requires: npm install @bufbuild/protobuf @connectrpc/connect @connectrpc/connect-node
+// Requires: buf generate  (populates src/sdk/grpc/gen/)
 export {
-  CredenceErrorEnvelope,
-  CredenceErrorOptions,
-  SanitizedErrorCause,
-  CREDENCE_ERROR_REGISTRY,
-  CREDENCE_ERROR_CODES,
-  CredenceErrorCode,
-  createCredenceErrorFromEnvelope,
-  createTransportCredenceError,
-  parseCredenceErrorEnvelope,
-  sanitizeCauseChain,
-  isCredenceError,
-  ValidationFailedCredenceError,
-  FieldRequiredCredenceError,
-  InvalidFormatCredenceError,
-  InvalidAddressCredenceError,
-  InvalidTypeCredenceError,
-  UnexpectedFieldCredenceError,
-  ValueTooSmallCredenceError,
-  ValueTooLargeCredenceError,
-  InsufficientFundsCredenceError,
-  UnauthorizedCredenceError,
-  ForbiddenCredenceError,
-  NotFoundCredenceError,
-  ConflictCredenceError,
-  BatchSizeExceededCredenceError,
-  BatchSizeTooSmallCredenceError,
-  RateLimitExceededCredenceError,
-  ServiceUnavailableCredenceError,
-  InternalServerErrorCredenceError,
-  InvalidInputCredenceError,
-  SdkRequestTimeoutCredenceError,
-  SdkNetworkErrorCredenceError,
-  SdkInvalidJsonCredenceError,
-  SdkUnmappedHttpCredenceError,
-} from './errors.generated.js'
+  createCredenceGrpcClient,
+  type CredenceGrpcClient,
+  type CredenceGrpcConfig,
+  createSharedSecretInterceptor,
+  createRequestIdInterceptor,
+  INTERNAL_TOKEN_HEADER,
+} from './grpc/index.js'

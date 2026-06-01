@@ -1,0 +1,118 @@
+name: Buf — Proto Lint & Breaking-Change Detection
+
+# Run on every PR targeting main and on direct pushes to main.
+# The breaking-change step compares the PR branch against the merge base
+# (the PR base SHA) so that only changes introduced by the PR are flagged.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'proto/**'
+      - 'buf.yaml'
+      - 'buf.gen.yaml'
+  pull_request:
+    # Include labeled/unlabeled so the "buf skip breaking" label is respected.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+    branches: [main]
+    paths:
+      - 'proto/**'
+      - 'buf.yaml'
+      - 'buf.gen.yaml'
+
+permissions:
+  contents: read
+  # Required for buf-action to post PR summary comments.
+  pull-requests: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # buf-ci: lint + breaking-change detection via the unified buf-action
+  #
+  # On pull_request:
+  #   - Runs buf lint (reports findings as PR annotations)
+  #   - Runs buf breaking against the PR base commit
+  #   - Posts a summary comment on the PR
+  #   - Skips breaking check when the "buf skip breaking" label is present
+  #
+  # On push to main:
+  #   - Runs buf lint only (no breaking check; the PR gate already caught it)
+  # ---------------------------------------------------------------------------
+  buf-ci:
+    name: Buf Lint & Breaking
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history for git-based comparison)
+        uses: actions/checkout@v4
+        with:
+          # Fetch enough history so the merge base is available for the
+          # breaking-change comparison.
+          fetch-depth: 0
+
+      - name: Run Buf checks
+        uses: bufbuild/buf-action@v1
+        with:
+          version: '1.47.2'
+          # Disable BSR push — this repo does not publish to the BSR.
+          push: false
+          # Disable format check — not enforced in this project yet.
+          format: false
+          # Disable label-archive — no BSR labels to manage.
+          archive: false
+          # Compare against the PR base commit.
+          # On push events buf-action defaults to the previous commit, which
+          # is correct for direct pushes to main.
+          breaking_against: >-
+            ${{
+              github.event_name == 'pull_request' &&
+              format(
+                '{0}#format=git,commit={1}',
+                github.event.repository.clone_url,
+                github.event.pull_request.base.sha
+              ) || ''
+            }}
+
+  # ---------------------------------------------------------------------------
+  # buf-generate: verify that generated TypeScript stubs compile cleanly.
+  #
+  # This job runs buf generate and then tsc --noEmit on the generated output
+  # to catch any type errors introduced by proto changes before they reach
+  # the main test suite.
+  # ---------------------------------------------------------------------------
+  buf-generate:
+    name: Buf Generate & TypeScript Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Install buf (setup-only mode)
+        uses: bufbuild/buf-action@v1
+        with:
+          version: '1.47.2'
+          setup_only: true
+
+      - name: Install protoc-gen-es and Connect-RPC plugins
+        # Pin exact versions to match buf.gen.yaml plugin declarations.
+        run: |
+          npm install --save-dev \
+            @bufbuild/protoc-gen-es@2.2.3 \
+            @bufbuild/protobuf@2.2.3 \
+            @connectrpc/connect@1.6.1 \
+            @connectrpc/connect-node@1.6.1
+
+      - name: Generate TypeScript stubs
+        run: buf generate
+
+      - name: TypeScript type-check generated stubs
+        # Only check the generated directory; the rest of the project is
+        # checked by the main test workflow.
+        run: npx tsc --noEmit --project tsconfig.grpc.json
