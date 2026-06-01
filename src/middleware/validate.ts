@@ -44,6 +44,12 @@ function formatZodErrors(error: ZodError): Array<{ path: string; message: string
     let code: ErrorCode = ErrorCode.VALIDATION_FAILED
 
     switch (e.code) {
+      case 'custom':
+        // Refinement errors from stellarAddressSchema carry this message
+        if (e.message === 'INVALID_STELLAR_ADDRESS') {
+          code = ErrorCode.INVALID_STELLAR_ADDRESS
+        }
+        break
       case 'invalid_type':
         // In Zod 4, the 'received' property is often missing from the issue object,
         // so we check the message as a fallback to identify missing fields.
@@ -51,7 +57,6 @@ function formatZodErrors(error: ZodError): Array<{ path: string; message: string
           ? ErrorCode.FIELD_REQUIRED
           : ErrorCode.INVALID_TYPE
         break
-      case 'invalid_string':
       case 'invalid_format':
         code = (e.path.join('.').toLowerCase().includes('address') || e.message.toLowerCase().includes('address'))
           ? ErrorCode.INVALID_ADDRESS

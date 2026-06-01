@@ -150,7 +150,7 @@ export class PostgresAuditLogsRepository implements AuditLogRepository {
         input.status ?? 'success',
         input.ipAddress ?? null,
         input.errorMessage ?? null,
-        input.tenantId,
+        input.tenantId ?? 'tenant-unknown',
       ],
     )
 
@@ -252,7 +252,7 @@ export class InMemoryAuditLogsRepository implements AuditLogRepository {
       status: input.status ?? 'success',
       ipAddress: input.ipAddress,
       errorMessage: input.errorMessage,
-      tenantId: input.tenantId,
+      tenantId: input.tenantId ?? 'tenant-unknown',
     }
 
     const frozen = Object.freeze(cloneEntry(entry))

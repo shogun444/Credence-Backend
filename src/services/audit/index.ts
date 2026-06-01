@@ -42,7 +42,10 @@ export class AuditLogService {
     ipAddress?: string,
   ): Promise<AuditLogEntry> {
     if (typeof inputOrTenantId !== 'string') {
-      return this.repository.append(inputOrTenantId)
+      return this.repository.append({
+        ...inputOrTenantId,
+        tenantId: inputOrTenantId.tenantId ?? 'tenant-unknown',
+      })
     }
 
     const tenantId = inputOrTenantId
@@ -145,7 +148,7 @@ export class AuditLogService {
     const startMs = startDate.getTime()
     const endMs = endDate.getTime()
 
-    const { logs } = await this.getLogs(tenantId, {}, Number.MAX_SAFE_INTEGER, 0, options)
+    const { logs } = await this.getLogs(tenantId, {}, Number.MAX_SAFE_INTEGER, undefined, options)
     for (const log of logs) {
       const logTime = new Date(log.timestamp).getTime()
       

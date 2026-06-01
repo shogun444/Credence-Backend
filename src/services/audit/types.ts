@@ -25,6 +25,11 @@ export enum AuditAction {
   UPDATE_MEMBER_ROLE = 'UPDATE_MEMBER_ROLE',
   DELETE_MEMBER = 'DELETE_MEMBER',
   RESTORE_MEMBER = 'RESTORE_MEMBER',
+  POLICY_RULE_DELETED = 'POLICY_RULE_DELETED',
+  POLICY_RULE_UPDATED = 'POLICY_RULE_UPDATED',
+  POLICY_RULE_CREATED = 'POLICY_RULE_CREATED',
+  REVOKE_WEBHOOK_SECRET = 'REVOKE_WEBHOOK_SECRET',
+  ROTATE_WEBHOOK_SECRET = 'ROTATE_WEBHOOK_SECRET',
 }
 
 export type AuditStatus = 'success' | 'failure'
@@ -39,7 +44,7 @@ export interface AuditLogInput {
   status?: AuditStatus
   ipAddress?: string
   errorMessage?: string
-  tenantId: string
+  tenantId?: string
 }
 
 export interface AuditLogFilters {
@@ -74,5 +79,5 @@ export interface AuditLogEntry {
   ipAddress?: string
   status: AuditStatus
   errorMessage?: string
-  tenantId: string
+  tenantId?: string
 }

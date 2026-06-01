@@ -2,7 +2,7 @@
  * Central export for request validation schemas.
  * Use with validate middleware for path, query, and body validation.
  */
-export { addressSchema, type Address } from './address.js'
+export { addressSchema, stellarAddressSchema, type Address, type StellarAddress } from './address.js'
 export {
   trustPathParamsSchema,
   trustQuerySchema,
@@ -38,3 +38,4 @@ export {
   type ReportType,
   type CreateReportBody,
 } from './report.js'
+export { createPayoutSchema, PAYOUT_STATUS_ENUM, type CreatePayoutInput } from './payout.js'

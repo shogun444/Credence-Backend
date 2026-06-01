@@ -1,11 +1,17 @@
 import { pool } from '../pool.js'
 import { OutboxRepository } from './repository.js'
-import type { OutboxEvent, OutboxCleanupConfig } from './types.js'
+import type { OutboxEvent, OutboxCleanupConfig, OutboxQuarantineReason } from './types.js'
 import { randomUUID } from 'crypto'
+import type { ZodType } from 'zod'
 import {
   recordOutboxPublisherHeartbeat,
   setOutboxPublisherRunning,
 } from '../../services/health/runtimeState.js'
+import {
+  attestationEventSchema,
+  bondCreationEventSchema,
+  withdrawalEventSchema,
+} from '../../schemas/queue.js'
 import { logger } from '../../utils/logger.js'
 import {
   incrementOutboxDeadLetter,
@@ -13,6 +19,7 @@ import {
   incrementOutboxFailed,
   setOutboxPendingGauge,
   incrementOutboxLeaseRenew,
+  incrementOutboxQuarantine,
 } from '../../observability/index.js'
 
 /**
@@ -40,6 +47,8 @@ export interface OutboxPublisherConfig {
   heartbeatIntervalMs?: number
   /** Metrics scrape interval in milliseconds. Default: 15000 */
   metricsIntervalMs?: number
+  /** Maximum serialized payload size accepted by the publisher. Default: 262144 (256 KiB) */
+  maxPayloadBytes?: number
 }
 
 const DEFAULT_CONFIG: OutboxPublisherConfig = {
@@ -51,6 +60,31 @@ const DEFAULT_CONFIG: OutboxPublisherConfig = {
   },
   cleanupIntervalMs: 3600000,
   metricsIntervalMs: 15000,
+  maxPayloadBytes: 262144,
+}
+
+const QUEUE_EVENT_SCHEMAS: Record<string, ZodType> = {
+  'attestation.event': attestationEventSchema,
+  'attestation.add': attestationEventSchema,
+  'attestation.revoke': attestationEventSchema,
+  'bond.creation': bondCreationEventSchema,
+  'bond.create': bondCreationEventSchema,
+  'withdrawal.event': withdrawalEventSchema,
+  'bond.withdrawal': withdrawalEventSchema,
+}
+
+const KNOWN_OUTBOX_EVENT_TYPES = new Set([
+  'bond.created',
+  'bond.slashed',
+  'bond.withdrawn',
+  'attestation.created',
+  'attestation.revoked',
+  ...Object.keys(QUEUE_EVENT_SCHEMAS),
+])
+
+interface PoisonPillDetection {
+  reason: OutboxQuarantineReason
+  message: string
 }
 
 /**
@@ -246,6 +280,12 @@ export class OutboxPublisher {
    * Process a single event with error handling and retry logic.
    */
   private async processEvent(event: OutboxEvent): Promise<void> {
+    const poison = this.detectPoisonPill(event)
+    if (poison) {
+      await this.quarantineEvent(event, poison.reason, poison.message)
+      return
+    }
+
     try {
       await this.publisher.publish(event)
       await this.repository.markPublished(pool, event.id)
@@ -272,6 +312,67 @@ export class OutboxPublisher {
       } catch (err) {
         logger.error('[OutboxPublisher] Error marking event failed', err)
       }
+    }
+  }
+
+  private detectPoisonPill(event: OutboxEvent): PoisonPillDetection | null {
+    if (event.payloadParseError) {
+      return {
+        reason: 'malformed_json',
+        message: event.payloadParseError,
+      }
+    }
+
+    const serializedPayload = event.rawPayload ?? JSON.stringify(event.payload)
+    if (Buffer.byteLength(serializedPayload, 'utf8') > (this.config.maxPayloadBytes ?? DEFAULT_CONFIG.maxPayloadBytes!)) {
+      return {
+        reason: 'oversized_payload',
+        message: `Payload exceeds ${this.config.maxPayloadBytes ?? DEFAULT_CONFIG.maxPayloadBytes} bytes`,
+      }
+    }
+
+    if (!KNOWN_OUTBOX_EVENT_TYPES.has(event.eventType)) {
+      return {
+        reason: 'unknown_event_type',
+        message: `Unknown outbox event type: ${event.eventType}`,
+      }
+    }
+
+    const schema = QUEUE_EVENT_SCHEMAS[event.eventType]
+    if (!schema) {
+      return null
+    }
+
+    const result = schema.safeParse(event.payload)
+    if (!result.success) {
+      return {
+        reason: 'schema_invalid',
+        message: result.error.issues
+          .map(issue => `${issue.path.join('.') || '<root>'}: ${issue.message}`)
+          .join('; ')
+          .slice(0, 2000),
+      }
+    }
+
+    return null
+  }
+
+  private async quarantineEvent(
+    event: OutboxEvent,
+    reason: OutboxQuarantineReason,
+    message: string
+  ): Promise<void> {
+    try {
+      await this.repository.quarantine(pool, event, reason, message)
+      incrementOutboxQuarantine(reason)
+      logger.warn({
+        message: `[OutboxPublisher] Event ${event.id} quarantined`,
+        eventType: event.eventType,
+        reason,
+        error: message,
+      })
+    } catch (error) {
+      logger.error('[OutboxPublisher] Error quarantining event', error)
     }
   }
 
@@ -306,6 +407,7 @@ export class OutboxPublisher {
     processing: number
     published: number
     failed: number
+    dead_letter: number
   }> {
     return this.repository.getStats(pool)
   }

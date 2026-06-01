@@ -1,4 +1,5 @@
 import type http from 'http'
+import type { Socket } from 'net'
 import { setReady } from './lifecycle.js'
 import { stop as stopListeners } from './listeners/index.js'
 
@@ -14,11 +15,11 @@ export interface GracefulShutdownOptions {
 export class GracefulShutdownManager {
   private shuttingDown = false
   private forceExitTimer: NodeJS.Timeout | null = null
-  private readonly connections = new Set<http.Socket>()
+  private readonly connections = new Set<Socket>()
 
   constructor(private readonly options: GracefulShutdownOptions = {}) {}
 
-  trackConnection(socket: http.Socket): void {
+  trackConnection(socket: Socket): void {
     this.connections.add(socket)
     socket.once('close', () => this.connections.delete(socket))
   }
