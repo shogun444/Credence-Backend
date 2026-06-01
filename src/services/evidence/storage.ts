@@ -1,4 +1,5 @@
 import crypto from 'crypto'
+import { kekManager } from '../keyManager/index.js'
 
 export type Role = 'USER' | 'ARBITRATOR' | 'GOVERNANCE'
 
@@ -9,38 +10,69 @@ export interface EvidenceRecord {
   authTag: string
   uploaderId: string
   createdAt: Date
+  /** KEK version used to encrypt this record. Defaults to 1 for legacy records. */
+  kek_version: number
 }
 
 // Using an in-memory map to simulate the DB for this service layer
-const evidenceDB = new Map<string, EvidenceRecord>()
+export const evidenceDB = new Map<string, EvidenceRecord>()
 
 /**
  * Service for securely storing and retrieving dispute/slash evidence.
  * Implements AES-256-GCM encryption at rest and Role-Based Access Control.
+ *
+ * Encryption uses the current active KEK from KekManager (envelope encryption).
+ * When no KEK versions are registered, falls back to EVIDENCE_ENCRYPTION_KEY env var (legacy mode).
+ * Legacy records without kek_version are treated as version 1.
  */
 export class EvidenceStorageService {
   private readonly algorithm = 'aes-256-gcm'
-  private readonly key: Buffer
 
   constructor() {
-    const secret = process.env.EVIDENCE_ENCRYPTION_KEY
-    if (!secret || Buffer.from(secret, 'utf-8').length !== 32) {
-      throw new Error('EVIDENCE_ENCRYPTION_KEY must be exactly 32 bytes long.')
+    // In legacy mode (no KekManager versions), validate the env var at construction time
+    // to preserve backward-compatible fail-fast behaviour.
+    if (kekManager.getAllVersions().length === 0) {
+      const secret = process.env.EVIDENCE_ENCRYPTION_KEY
+      if (!secret || Buffer.from(secret, 'utf-8').length !== 32) {
+        throw new Error('EVIDENCE_ENCRYPTION_KEY must be exactly 32 bytes long.')
+      }
     }
-    this.key = Buffer.from(secret, 'utf-8')
+  }
+
+  private getKey(version: number): Buffer {
+    try {
+      return kekManager.getVersion(version).keyMaterial
+    } catch {
+      // Fallback: legacy single-key mode
+      const secret = process.env.EVIDENCE_ENCRYPTION_KEY
+      if (!secret || Buffer.from(secret, 'utf-8').length !== 32) {
+        throw new Error('EVIDENCE_ENCRYPTION_KEY must be exactly 32 bytes long.')
+      }
+      return Buffer.from(secret, 'utf-8')
+    }
+  }
+
+  private getCurrentKey(): { key: Buffer; version: number } {
+    try {
+      const kek = kekManager.getCurrentKek()
+      return { key: kek.keyMaterial, version: kek.version }
+    } catch {
+      // Fallback: legacy single-key mode
+      const secret = process.env.EVIDENCE_ENCRYPTION_KEY
+      if (!secret || Buffer.from(secret, 'utf-8').length !== 32) {
+        throw new Error('EVIDENCE_ENCRYPTION_KEY must be exactly 32 bytes long.')
+      }
+      return { key: Buffer.from(secret, 'utf-8'), version: 1 }
+    }
   }
 
   /**
-   * Encrypts and stores evidence.
-   * @param evidenceId - Unique identifier for the evidence
-   * @param rawData - The raw evidence string or JSON payload
-   * @param uploaderId - ID of the user uploading the evidence
-   * @returns The stored EvidenceRecord metadata
+   * Encrypts and stores evidence using the current active KEK.
    */
   public async uploadEvidence(
     evidenceId: string,
     rawData: string,
-    uploaderId: string
+    uploaderId: string,
   ): Promise<EvidenceRecord> {
     if (!evidenceId || evidenceId.trim().length === 0 || /\s/.test(evidenceId)) {
       throw new Error('Invalid evidence id')
@@ -49,8 +81,9 @@ export class EvidenceStorageService {
       throw new Error('Evidence already exists')
     }
 
+    const { key, version } = this.getCurrentKey()
     const iv = crypto.randomBytes(12)
-    const cipher = crypto.createCipheriv(this.algorithm, this.key, iv)
+    const cipher = crypto.createCipheriv(this.algorithm, key, iv)
 
     let encrypted = cipher.update(rawData, 'utf8', 'hex')
     encrypted += cipher.final('hex')
@@ -63,25 +96,18 @@ export class EvidenceStorageService {
       authTag: authTag,
       uploaderId,
       createdAt: new Date(),
+      kek_version: version,
     }
 
-    // Store in DB simulation
     evidenceDB.set(evidenceId, record)
-
     return record
   }
 
   /**
    * Retrieves and decrypts evidence if the requesting role is authorized.
-   * @param evidenceId - Unique identifier for the evidence
-   * @param role - Role of the user requesting the evidence
-   * @returns The decrypted raw data
-   * @throws Error if unauthorized or evidence not found
+   * Automatically selects the correct KEK version from the record.
    */
-  public async retrieveEvidence(
-    evidenceId: string,
-    role: Role
-  ): Promise<string> {
+  public async retrieveEvidence(evidenceId: string, role: Role): Promise<string> {
     if (!evidenceId || evidenceId.trim().length === 0 || /\s/.test(evidenceId)) {
       throw new Error('Invalid evidence id')
     }
@@ -93,10 +119,11 @@ export class EvidenceStorageService {
       throw new Error('Evidence not found')
     }
 
+    const key = this.getKey(record.kek_version ?? 1)
     const decipher = crypto.createDecipheriv(
       this.algorithm,
-      this.key,
-      Buffer.from(record.iv, 'hex')
+      key,
+      Buffer.from(record.iv, 'hex'),
     )
 
     decipher.setAuthTag(Buffer.from(record.authTag, 'hex'))
@@ -107,9 +134,7 @@ export class EvidenceStorageService {
     return decrypted
   }
 
-  /**
-   * Enforces RBAC - Only ARBITRATOR and GOVERNANCE can view evidence.
-   */
+  /** Enforces RBAC - Only ARBITRATOR and GOVERNANCE can view evidence. */
   private enforceAccessControl(role: Role): void {
     const allowedRoles: Role[] = ['ARBITRATOR', 'GOVERNANCE']
     if (!allowedRoles.includes(role)) {
