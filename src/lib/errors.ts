@@ -12,6 +12,7 @@ export enum ErrorCode {
   UNAUTHORIZED = 'unauthorized',
   FORBIDDEN = 'forbidden',
   NOT_FOUND = 'not_found',
+  CONFLICT = 'conflict',
   BATCH_SIZE_EXCEEDED = 'batch_size_exceeded',
   BATCH_SIZE_TOO_SMALL = 'batch_size_too_small',
   INTERNAL_SERVER_ERROR = 'internal_server_error',

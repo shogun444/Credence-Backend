@@ -20,7 +20,8 @@
     "migrate:preflight": "tsx src/migrations/linter.ts pre-flight",
     "migrate:template": "tsx src/migrations/linter.ts template",
     "migrate:safety": "tsx src/migrations/linter.ts check --strict",
-    "generate:openapi": "npx tsx scripts/generate-openapi.ts"
+    "generate:openapi": "npx tsx scripts/generate-openapi.ts",
+    "generate:sdk-errors": "npx tsx scripts/generate-sdk-errors.ts"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",
