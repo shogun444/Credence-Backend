@@ -23,3 +23,11 @@ export {
 } from './timeoutMetrics.js'
 
 export { registerPoolMetrics } from './poolMetrics.js'
+export {
+  incrementOutboxDeadLetter,
+  incrementOutboxPublished,
+  incrementOutboxFailed,
+  setOutboxPendingGauge,
+  incrementOutboxLeaseRenew,
+  incrementOutboxQuarantine,
+} from './outboxMetrics.js'
