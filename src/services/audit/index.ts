@@ -8,14 +8,21 @@ import type { AuditLogEntry, AuditLogFilters, AuditLogInput, AuditStatus } from 
 import { AuditAction } from './types.js'
 
 /**
- * Audit log service for tracking admin actions
- * In production, this would write to a database or centralized logging system
+ * Audit log service for tracking admin actions.
+ *
+ * All entries are hash-chained: each row stores the SHA-256 of the preceding row
+ * so that any tampering (mutation or deletion) is detectable by walking the chain.
+ *
+ * In production, this would write to a database or centralized logging system.
  */
 export class AuditLogService {
   constructor(private readonly repository: AuditLogRepository = new InMemoryAuditLogsRepository()) {}
 
   /**
-   * Log an admin action
+   * Log an admin action.
+   *
+   * The underlying repository computes the hash chain (prev_hash + row_hash)
+   * inside the same transaction as the INSERT, so the chain is always consistent.
    * 
    * @param tenantId - Tenant ID for multi-tenant isolation (required)
    * @param adminId - ID of the admin performing the action
@@ -27,7 +34,7 @@ export class AuditLogService {
    * @param status - Whether the action succeeded or failed
    * @param errorMessage - Error message if action failed
    * @param ipAddress - IP address of the requester
-   * @returns The created audit log entry
+   * @returns The created audit log entry (including prevHash and rowHash)
    */
   async logAction(
     inputOrTenantId: AuditLogInput | string,
@@ -42,10 +49,7 @@ export class AuditLogService {
     ipAddress?: string,
   ): Promise<AuditLogEntry> {
     if (typeof inputOrTenantId !== 'string') {
-      return this.repository.append({
-        ...inputOrTenantId,
-        tenantId: inputOrTenantId.tenantId ?? 'tenant-unknown',
-      })
+      return this.repository.append(inputOrTenantId)
     }
 
     const tenantId = inputOrTenantId

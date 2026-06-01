@@ -195,25 +195,35 @@ groups:
             Worker pool has {{ $value }} jobs queued waiting for a
             connection for >5 minutes.
 
-      # Soroban circuit breaker open
-      - alert: SorobanCircuitBreakerOpen
-        expr: soroban_circuit_state == 1
-        for: 2m
+      # ─── Audit Log Tamper Detection ────────────────────────────────
+      # Critical: any non-zero violation count means the audit chain
+      # has been tampered with (row mutated, deleted, or re-ordered).
+      # Pages on-call immediately.
+      - alert: AuditChainIntegrityViolation
+        expr: |
+          audit_chain_integrity_violation_total{job="credence-backend"} > 0
+        for: 0m
         labels:
           severity: critical
           service: credence-backend
         annotations:
-          summary: "Soroban circuit breaker is OPEN for {{ $labels.host }}"
-          description: "Soroban circuit breaker for host {{ $labels.host }} has been OPEN for more than 2 minutes."
+          summary: "Audit log chain integrity violation detected"
+          description: >-
+            {{ $value }} audit log chain integrity violations detected.
+            This indicates potential tampering with the audit_logs table
+            (rows mutated, deleted, or re-ordered). Investigate immediately.
+            Runbook: docs/audit-log.md#tamper-detection
 
-      # Settlement drift detected
-      - alert: SettlementDriftDetected
-        expr: sum(increase(settlement_drift_total[5m])) > 0
-        for: 2m
+      # Warning: verifier hasn't run in 30 minutes (should run every 15)
+      - alert: AuditChainVerifierStale
+        expr: |
+          (time() - audit_chain_verifier_last_run_timestamp{job="credence-backend"}) > 1800
+        for: 5m
         labels:
-          severity: critical
+          severity: warning
           service: credence-backend
         annotations:
-          summary: "Settlement drift detected between internal DB and Stellar network"
-          description: "Reconciliation detected mismatch between internal settlements and chain transactions: {{ $value }} drifts detected."
-
+          summary: "Audit chain verifier has not run recently"
+          description: >-
+            The audit chain verifier has not completed a run in over 30 minutes.
+            It is scheduled to run every 15 minutes. Check the job scheduler.
