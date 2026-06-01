@@ -1,7 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express'
 import type { PoolClient } from 'pg'
 import {
-  buildCursorPaginationMeta,
+  buildPaginationMeta,
   parsePaginationParams,
   PaginationValidationError,
 } from '../lib/pagination.js'
@@ -100,10 +100,14 @@ function createLegacyAttestationRouter(repo: LegacyAttestationRepository): Route
         limit,
       })
 
+      const total = typeof (result as { total?: unknown }).total === 'number'
+        ? (result as { total: number }).total
+        : repo.countBySubject(req.params.identity, req.query.includeRevoked === 'true')
+
       res.json({
         identity: req.params.identity,
         attestations: result.attestations,
-        ...buildPaginationMeta(result.total, page, limit),
+        ...buildPaginationMeta(total, page, limit),
       })
     } catch (error) {
       next(error)

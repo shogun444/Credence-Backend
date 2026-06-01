@@ -63,7 +63,7 @@ export class FailedInboundEventsRepository {
     return mapFailedEvent(result.rows[0])
   }
 
-  async findById(id: string): Promise<FailedInboundEvent | undefined> {
+  async findById(id: string): Promise<FailedInboundEvent | null> {
     const result = await this.db.query<FailedEventRow>(
       `
       SELECT id, event_type, event_data, failure_reason, replay_token, status, created_at, updated_at
@@ -73,7 +73,7 @@ export class FailedInboundEventsRepository {
       [id]
     )
 
-    return result.rows[0] ? mapFailedEvent(result.rows[0]) : undefined
+    return result.rows[0] ? mapFailedEvent(result.rows[0]) : null
   }
 
   async updateStatus(id: string, status: FailedEventStatus): Promise<void> {

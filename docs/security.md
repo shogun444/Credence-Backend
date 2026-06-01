@@ -128,3 +128,21 @@ The catch-block fallback in `src/app.ts` also derives `failOpen` from `NODE_ENV`
 - **Misconfiguration cannot disable limits in production.** The `RATE_LIMIT_FAIL_OPEN` default is `false` when `NODE_ENV=production`, and the startup fallback in `src/app.ts` mirrors this.
 - **Key identifiers are never stored in plain text.** When no authenticated record is present, the tenant id is derived from a truncated SHA-256 hash of the API key or Bearer token.
 - **Per-key isolation** ensures that a compromised or misbehaving key cannot exhaust the rate budget of other keys belonging to the same tenant.
+
+## Secret Scanning Response Playbook
+
+- **Detect**: Gitleaks runs in CI weekly and as a pre‑commit hook. If a secret is found, the CI job fails and the pre‑commit aborts.
+- **Alert**: The CI workflow uploads a `gitleaks-report.json` artifact. Review the findings in the GitHub Actions UI.
+- **Triage**:
+  - Verify the secret is indeed exposed and not an allow‑listed fixture.
+  - Determine the severity (e.g., exposed private key vs. dummy token).
+- **Remediation**:
+  - Revoke the leaked credential immediately (rotate API keys, reset passwords, invalidate tokens).
+  - Remove the secret from the repository history using `git filter-repo` or `bfg` if necessary, then force‑push.
+  - Update the `.gitleaks.toml` allowlist if the secret is a legitimate test fixture.
+- **Post‑mortem**:
+  - Document the incident in the security incident log.
+  - Add unit tests to ensure similar patterns are caught by the allowlist.
+  - Review CI configuration to ensure no secrets leak in future releases.
+
+For more details see the [Gitleaks documentation](https://github.com/gitleaks/gitleaks).

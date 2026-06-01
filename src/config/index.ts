@@ -57,6 +57,21 @@ export const envSchema = z.object({
     .default('5')
     .transform(Number)
     .pipe(z.number().int().min(1).max(50)),
+  DB_LOCK_TIMEOUT_READONLY_MS: z
+    .string()
+    .default('1000')
+    .transform(Number)
+    .pipe(z.number().int().min(100).max(30000)),
+  DB_LOCK_TIMEOUT_DEFAULT_MS: z
+    .string()
+    .default('2000')
+    .transform(Number)
+    .pipe(z.number().int().min(100).max(30000)),
+  DB_LOCK_TIMEOUT_CRITICAL_MS: z
+    .string()
+    .default('10000')
+    .transform(Number)
+    .pipe(z.number().int().min(100).max(60000)),
 
   // Redis
   REDIS_URL: z.string().url({ message: 'REDIS_URL must be a valid URL' }),
@@ -167,6 +182,38 @@ export const envSchema = z.object({
   OUTBOUND_RETRY_WEBHOOK_MAX_DELAY_MS: z.coerce.number().int().min(1).optional(),
   OUTBOUND_RETRY_WEBHOOK_BACKOFF_MULTIPLIER: z.coerce.number().min(1).optional(),
   OUTBOUND_RETRY_WEBHOOK_JITTER_STRATEGY: z.enum(['none', 'full', 'equal']).optional(),
+
+  // Timeout budgets
+  TIMEOUT_DB_MS: z
+    .string()
+    .default('2000')
+    .transform(Number)
+    .pipe(z.number().int().min(100).max(30000)),
+  TIMEOUT_CACHE_MS: z
+    .string()
+    .default('500')
+    .transform(Number)
+    .pipe(z.number().int().min(50).max(10000)),
+  TIMEOUT_QUEUE_MS: z
+    .string()
+    .default('1000')
+    .transform(Number)
+    .pipe(z.number().int().min(100).max(15000)),
+  TIMEOUT_HTTP_MS: z
+    .string()
+    .default('5000')
+    .transform(Number)
+    .pipe(z.number().int().min(1000).max(60000)),
+  TIMEOUT_SOROBAN_MS: z
+    .string()
+    .default('5000')
+    .transform(Number)
+    .pipe(z.number().int().min(100).max(45000)),
+  TIMEOUT_WEBHOOK_MS: z
+    .string()
+    .default('10000')
+    .transform(Number)
+    .pipe(z.number().int().min(2000).max(60000)),
 
   // Rate limiting
   RATE_LIMIT_ENABLED: z

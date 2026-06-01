@@ -57,7 +57,6 @@ function formatZodErrors(error: ZodError): Array<{ path: string; message: string
           ? ErrorCode.FIELD_REQUIRED
           : ErrorCode.INVALID_TYPE
         break
-      case 'invalid_string':
       case 'invalid_format':
         code = (e.path.join('.').toLowerCase().includes('address') || e.message.toLowerCase().includes('address'))
           ? ErrorCode.INVALID_ADDRESS
