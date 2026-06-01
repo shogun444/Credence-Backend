@@ -13,6 +13,7 @@ import { Request, Response, NextFunction } from 'express'
 import client from 'prom-client'
 import { httpRequestDurationHistogram, httpRequestStatusTotal, normalizeRoute, registerLatencyMetrics } from '../observability/latencyMetrics.js'
 import { registerPoolMetrics } from '../observability/index.js'
+import { registerAdvisoryLockMetrics } from '../jobs/advisoryLockMonitor.js'
 import { pool, workerPool } from '../db/pool.js'
 
 // Create a Registry to register metrics
@@ -23,6 +24,9 @@ registerLatencyMetrics(register)
 
 // Register database connection pool metrics
 registerPoolMetrics(register, pool, workerPool)
+
+// Register advisory lock age metrics for stale advisory lock detection
+registerAdvisoryLockMetrics(register)
 
 // Add default Node.js metrics (CPU, memory, event loop, etc.)
 client.collectDefaultMetrics({ 

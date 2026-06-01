@@ -196,6 +196,44 @@ private isLockTimeoutError(error: Error): boolean {
 }
 ```
 
+## Advisory Lock Monitoring and Runbook
+
+The backend now detects stale PostgreSQL advisory locks by querying `pg_locks`
+joined with `pg_stat_activity`. This emits a Prometheus gauge called
+`pg_advisory_lock_age_seconds` for each advisory lock held by a session.
+
+### Alert rule
+
+```yaml
+- alert: StaleAdvisoryLockDetected
+  expr: pg_advisory_lock_age_seconds > 300
+  for: 5m
+  labels:
+    severity: warning
+    service: credence-backend
+```
+
+### Investigation steps
+
+1. Find the holding session:
+
+```sql
+SELECT pid, datname, usename, state, wait_event_type, wait_event, query, query_start
+FROM pg_stat_activity
+WHERE pid = <pid>;
+```
+
+2. Inspect the stale advisory lock:
+
+```sql
+SELECT * FROM pg_locks
+WHERE locktype = 'advisory' AND pid = <pid>;
+```
+
+3. Confirm the lock belongs to a stale or crashed worker before restarting.
+4. Do not auto-kill sessions; identify the stuck process or migration and
+   resolve it safely.
+
 ## Testing
 
 ### Unit Tests

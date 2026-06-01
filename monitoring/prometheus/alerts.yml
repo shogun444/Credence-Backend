@@ -194,4 +194,17 @@ groups:
           description: >-
             Worker pool has {{ $value }} jobs queued waiting for a
             connection for >5 minutes.
-          runbook_url: "https://docs.credence.org/runbooks/database#worker-pool-saturation"
+
+      # Stale advisory lock held longer than expected
+      - alert: StaleAdvisoryLockDetected
+        expr: pg_advisory_lock_age_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+          service: credence-backend
+        annotations:
+          summary: "Stale PostgreSQL advisory lock held longer than 5 minutes"
+          description: >-
+            Advisory lock {{ $labels.lock_id }} has been held for {{ $value }}s
+            by pid {{ $labels.pid }}. Investigate the holding session and
+            avoid killing the session without review.
