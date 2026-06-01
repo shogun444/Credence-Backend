@@ -1,5 +1,5 @@
-import type { Pool, PoolClient } from "pg";
-import { getTenantId } from "../utils/tenantContext.js";
+import type { Pool, PoolClient } from 'pg'
+import { RequestSnapshotsRepository } from './repositories/requestSnapshotsRepository.js'
 
 /** PostgreSQL error code emitted when lock_timeout fires (lock_not_available). */
 export const PG_LOCK_TIMEOUT_CODE = "55P03";
@@ -59,6 +59,25 @@ const FALLBACK_TIMEOUTS: LockTimeoutConfig = {
  * error triggers an immediate ROLLBACK so partial state is never committed,
  * even across multiple nested service calls.
  */
+export async function withReplaySnapshot<T>(
+  pool: Pool,
+  fn: (client: PoolClient, snapshot: any) => Promise<T>,
+  requestId: string,
+): Promise<T> {
+  const client = await pool.connect();
+  try {
+    const repo = new RequestSnapshotsRepository(client);
+    const snapshot = await repo.findById(requestId);
+    if (!snapshot) {
+      throw new Error(`Snapshot not found for requestId ${requestId}`);
+    }
+    const result = await fn(client, snapshot);
+    return result;
+  } finally {
+    client.release();
+  }
+}
+
 export class TransactionManager {
   private readonly timeouts: LockTimeoutConfig;
 

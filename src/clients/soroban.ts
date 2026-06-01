@@ -9,6 +9,7 @@ import { createDefaultMetricsCollector } from '../observability/timeoutMetrics.j
 import { normalizeTransportError, isAbortError } from './httpErrors.js'
 import { classifyTransportError } from '../utils/retryClassifier.js'
 import { logger } from '../utils/logger.js'
+import { noopRetryObserver, type RetryObserver } from '../observability/retryMetrics.js'
 import { resolveTimeout, createTimeoutConfig } from '../lib/timeouts.js'
 
 export type SorobanNetwork = 'testnet' | 'mainnet'

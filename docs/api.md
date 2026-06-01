@@ -458,4 +458,36 @@ npx @redocly/cli preview-docs docs/openapi.yaml
 npx @stoplight/prism-cli mock docs/openapi.yaml
 ```
 
-Alternatively, paste the file contents into [editor.swagger.io](https://editor.swagger.io) or [readme.com](https://readme.com).
+"Alternatively, paste the file contents into [editor.swagger.io](https://editor.swagger.io) or [readme.com](https://readme.com).
+
+---
+
+## OpenAPI Contract Drift Gate (CI)
+
+A mandatory CI gate (`npm run test:openapi-drift`) prevents silent drift between the published OpenAPI contract and runtime Express routes.
+
+### How it works
+- The introspector walks the router tree defined in `src/app.ts`.
+- It extracts paths, HTTP methods, and references to Zod schemas from `src/schemas/`.
+- It compares the result against `docs/openapi.yaml`.
+- The job **fails** on:
+  - Added or removed routes
+  - Incompatible schema shape changes
+- **Security**: Internal-only routes under `src/routes/admin/` are explicitly excluded from the public contract.
+
+### Regenerating the spec deterministically
+```bash
+npm run generate:openapi
+```
+This command produces a fresh `docs/openapi.yaml` from the current Zod schemas. After regeneration, run the drift check to confirm parity:
+
+```bash
+npm run test:openapi-drift
+```
+
+### Running locally
+```bash
+npm run test:openapi-drift
+```
+
+The gate is also executed automatically in CI on every push and pull request.

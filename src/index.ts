@@ -94,8 +94,8 @@ if (process.env.NODE_ENV !== 'test') {
       }
     }
 
-    shutdownManager?.setScheduler(scheduler)
-    shutdownManager?.setOutboxJob(outboxJob)
+    shutdownManager?.setScheduler(scheduler ?? undefined)
+    shutdownManager?.setOutboxJob(outboxJob ?? undefined)
   } catch (error) {
     console.error('Failed to start Credence API:', error)
     process.exit(1)

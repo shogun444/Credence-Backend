@@ -17,6 +17,7 @@ import { runWithTenant } from "../utils/tenantContext.js";
  * reports:generate  – Trigger and poll report generation jobs
  * exports:read      – Download report artifacts and audit-log exports
  * webhooks:admin    – Manage webhook signing secrets (rotate / revoke)
+ * outbox:reinject   – Reinsert fixed quarantined outbox events
  * admin:read        – Read admin resources (users, audit logs, failed events)
  * admin:write       – Mutate admin resources (assign roles, revoke keys, replay events, impersonate)
  *
@@ -27,15 +28,16 @@ import { runWithTenant } from "../utils/tenantContext.js";
  */
 export enum ApiScope {
   // Granular scopes
-  TRUST_READ = "trust:read",
-  ATTESTATIONS_READ = "attestations:read",
-  ATTESTATIONS_WRITE = "attestations:write",
-  PAYOUTS_WRITE = "payouts:write",
-  REPORTS_GENERATE = "reports:generate",
-  EXPORTS_READ = "exports:read",
-  WEBHOOKS_ADMIN = "webhooks:admin",
-  ADMIN_READ = "admin:read",
-  ADMIN_WRITE = "admin:write",
+  TRUST_READ = 'trust:read',
+  ATTESTATIONS_READ = 'attestations:read',
+  ATTESTATIONS_WRITE = 'attestations:write',
+  PAYOUTS_WRITE = 'payouts:write',
+  REPORTS_GENERATE = 'reports:generate',
+  EXPORTS_READ = 'exports:read',
+  WEBHOOKS_ADMIN = 'webhooks:admin',
+  OUTBOX_REINJECT = 'outbox:reinject',
+  ADMIN_READ = 'admin:read',
+  ADMIN_WRITE = 'admin:write',
 
   // Legacy aliases (backward-compatible)
   PUBLIC = "public",
@@ -57,6 +59,7 @@ export const SCOPE_SETS: Record<string, ReadonlySet<ApiScope>> = {
     ApiScope.REPORTS_GENERATE,
     ApiScope.EXPORTS_READ,
     ApiScope.WEBHOOKS_ADMIN,
+    ApiScope.OUTBOX_REINJECT,
     ApiScope.ADMIN_READ,
     ApiScope.ADMIN_WRITE,
   ]),
@@ -132,17 +135,15 @@ const API_KEYS: Record<string, ApiScope[]> = {
   "test-public-key-67890": [ApiScope.PUBLIC],
 
   // Granular-scope test keys (used in auth.scopes.test.ts)
-  "test-trust-read-key": [ApiScope.TRUST_READ],
-  "test-attestations-write-key": [
-    ApiScope.ATTESTATIONS_READ,
-    ApiScope.ATTESTATIONS_WRITE,
-  ],
-  "test-payouts-write-key": [ApiScope.PAYOUTS_WRITE],
-  "test-reports-key": [ApiScope.REPORTS_GENERATE, ApiScope.EXPORTS_READ],
-  "test-webhooks-admin-key": [ApiScope.WEBHOOKS_ADMIN],
-  "test-admin-read-key": [ApiScope.ADMIN_READ],
-  "test-admin-write-key": [ApiScope.ADMIN_READ, ApiScope.ADMIN_WRITE],
-};
+  'test-trust-read-key': [ApiScope.TRUST_READ],
+  'test-attestations-write-key': [ApiScope.ATTESTATIONS_READ, ApiScope.ATTESTATIONS_WRITE],
+  'test-payouts-write-key': [ApiScope.PAYOUTS_WRITE],
+  'test-reports-key': [ApiScope.REPORTS_GENERATE, ApiScope.EXPORTS_READ],
+  'test-webhooks-admin-key': [ApiScope.WEBHOOKS_ADMIN],
+  'test-outbox-reinject-key': [ApiScope.OUTBOX_REINJECT],
+  'test-admin-read-key': [ApiScope.ADMIN_READ],
+  'test-admin-write-key': [ApiScope.ADMIN_READ, ApiScope.ADMIN_WRITE],
+}
 
 /**
  * Mock user store - in production, use database or identity provider

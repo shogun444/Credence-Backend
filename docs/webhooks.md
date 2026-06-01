@@ -40,12 +40,46 @@ if (signature !== request.headers['x-webhook-signature']) {
 }
 ```
 
+## Mutual TLS (mTLS) Support
+
+For enterprise subscribers requiring mutual TLS authentication, webhooks can be configured with client certificates and server certificate pinning.
+
+### Configuration
+
+The webhook configuration supports optional mTLS fields:
+
+- `clientCertPem` - PEM-encoded client certificate for mTLS authentication
+- `clientKeyKmsRef` - KMS reference for client private key (never stored as plaintext)
+- `pinnedServerCertSha256` - SHA256 hash of pinned server certificate for certificate pinning
+
+### Certificate Rotation
+
+Client certificates can be rotated by updating the `clientCertPem` and `clientKeyKmsRef` fields. The system supports:
+
+- Grace period for certificate rotation (24 hours by default)
+- Automatic retry with exponential backoff on temporary certificate issues
+- Certificate pinning validation to prevent man-in-the-middle attacks
+
+### Error Handling
+
+mTLS-specific failures emit the `WEBHOOK_MTLS_FAILURE` error code and are tracked via the `webhook_mtls_failure_total` metric with labels:
+- `subscriber` - webhook ID
+- `reason` - specific failure reason (e.g., `cert_pin_mismatch`, `handshake_failure`)
+
+### Security Best Practices
+
+1. **Client Key Storage**: Client private keys are stored only as KMS references, never in plaintext
+2. **Certificate Pinning**: Server certificate hashes are compared in constant time to prevent timing attacks
+3. **Rotation Support**: Certificate rotation is supported with a grace period to avoid service disruption
+4. **Fail-Safe**: mTLS configuration is optional; webhooks without mTLS continue to work with standard HTTPS
+
 ## Delivery
 
-- Automatic retry with exponential backoff (max 3 attempts)
-- 5 second timeout per request
+- Automatic retry with exponential backoff (max 3 attempts, configurable per webhook)
+- 5 second timeout per request (configurable per webhook)
 - Rate limited to 1 delivery per webhook per 100ms
 - 4xx errors are not retried
+- mTLS handshake failures emit specific error codes for debugging
 
 ## Usage
 
@@ -70,6 +104,22 @@ await webhookService.emit('bond.created', {
 })
 ```
 
+### mTLS Configuration Example
+
+```typescript
+// Configure webhook with mTLS
+await webhookService.register({
+  url: 'https://enterprise.example.com/webhook',
+  events: ['bond.created', 'bond.slashed'],
+  secret: 'hmac-signing-secret',
+  clientCertPem: '-----BEGIN CERTIFICATE-----\n...',
+  clientKeyKmsRef: 'kms://arn:aws:kms:us-east-1:123456789012:key/abc123',
+  pinnedServerCertSha256: 'a1b2c3d4e5f6...',
+  timeoutMs: 10000,
+  maxAttempts: 5,
+})
+```
+
 ## Dead Letter Queue (DLQ)
 
 Failed webhook deliveries (e.g. max retries exceeded or 4xx responses) are permanently stored in a Postgres-backed Dead Letter Queue (`webhook_dlq` table).
@@ -77,6 +127,7 @@ Failed webhook deliveries (e.g. max retries exceeded or 4xx responses) are perma
 - **Durability**: Survives application restarts and deployments.
 - **Metrics**: The current size of the DLQ is exposed as a Prometheus gauge `webhook_dlq_size`.
 - **Replayability**: DLQ entries can be inspected and manually replayed, updating the `replayed_at` timestamp.
+- **mTLS Failures**: mTLS-specific failures include the `WEBHOOK_MTLS_FAILURE` error code for identification.
 
 ## Integration
 
@@ -90,3 +141,12 @@ const oldState = await store.get(address)
 await store.set(newState)
 await emitWebhookForStateChange(webhookService, oldState, newState)
 ```
+
+## Monitoring
+
+Key metrics for webhook delivery:
+
+- `webhook_delivery_duration` - Time taken for webhook delivery attempts
+- `webhook_timeout_total` - Count of webhook timeouts
+- `webhook_mtls_failure_total` - Count of mTLS-specific failures (with `subscriber` and `reason` labels)
+- `webhook_dlq_size` - Current size of the dead letter queue

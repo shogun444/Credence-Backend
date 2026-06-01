@@ -11,7 +11,7 @@
 
 import { Request, Response, NextFunction } from 'express'
 import client from 'prom-client'
-import { registerLatencyMetrics } from '../observability/latencyMetrics.js'
+import { httpRequestDurationHistogram, httpRequestStatusTotal, normalizeRoute, registerLatencyMetrics } from '../observability/latencyMetrics.js'
 import { registerPoolMetrics } from '../observability/index.js'
 import { pool, workerPool } from '../db/pool.js'
 
@@ -102,6 +102,14 @@ export const bulkVerificationBatchSize = new client.Histogram({
   name: 'bulk_verification_batch_size',
   help: 'Size of bulk verification batches',
   buckets: [1, 5, 10, 25, 50, 75, 100],
+  registers: [register]
+})
+
+export const bulkQueueWaitSeconds = new client.Histogram({
+  name: 'bulk_queue_wait_seconds',
+  help: 'Time jobs spend waiting in the bulk verification queue',
+  labelNames: ['org_id'],
+  buckets: [0.5, 1, 2, 5, 10, 30, 60, 300],
   registers: [register]
 })
 
@@ -330,6 +338,13 @@ export function recordStaleCacheRead(namespace: string) {
  */
 export function recordSettlementDuplicate() {
   settlementDuplicatesDetected.inc()
+}
+
+export function recordIdempotencyCheck(handlerType: string, result: 'duplicate' | 'executed' | 'error'): void {
+  idempotencyGuardChecks.inc({ handler_type: handlerType, result })
+  if (result === 'duplicate') {
+    idempotencyDuplicatesDetected.inc({ handler_type: handlerType })
+  }
 }
 
 /**

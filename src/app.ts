@@ -8,6 +8,7 @@ import bulkRouter from './routes/bulk.js'
 import importsRouter from './routes/imports.js'
 import { createAdminRouter } from './routes/admin/index.js'
 import { createWebhookAdminRouter } from './routes/admin/webhooks.js'
+import { createOutboxAdminRouter } from './routes/admin/outbox.js'
 import { createPolicyRouter } from './routes/policy.js'
 import { createAnalyticsRouter } from './routes/analytics.js'
 import { createPayoutsRouter } from './routes/payouts.js'
@@ -22,6 +23,7 @@ import { validateConfig } from './config/index.js'
 import { createAttestationRouter } from './routes/attestations.js'
 import { compressionMiddleware, compressionMetricsMiddleware } from './middleware/compression.js'
 import { metricsMiddleware, register } from './middleware/metrics.js'
+import { securityHeadersWithOverride } from './middleware/securityHeaders.js'
 
 const app = express()
 
@@ -45,6 +47,7 @@ try {
 const rateLimitMiddleware = createRateLimitMiddleware(rateLimitConfig)
 
 app.use(requestIdMiddleware)
+app.use(securityHeadersWithOverride)
 
 app.get('/metrics', async (_req, res) => {
   res.set('Content-Type', register.contentType)
@@ -54,7 +57,8 @@ app.get('/metrics', async (_req, res) => {
 app.use(metricsMiddleware)
 app.use(compressionMetricsMiddleware)
 app.use(compressionMiddleware)
-app.use(express.json())
+import { captureSnapshot } from './middleware/captureSnapshot.js';
+app.use(captureSnapshot);
 
 app.use('/.well-known/jwks.json', createJwksRouter())
 
@@ -76,6 +80,7 @@ app.use('/api/imports', importsRouter)
 
 app.use('/api/admin', createAdminRouter())
 app.use('/api/admin/webhooks', createWebhookAdminRouter())
+app.use('/v1/admin/outbox', createOutboxAdminRouter())
 
 app.use('/api/orgs/:orgId/policies', createPolicyRouter())
 

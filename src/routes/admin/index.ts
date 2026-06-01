@@ -19,6 +19,8 @@ import type {
 } from "../../services/admin/types.js";
 import type { IssueImpersonationTokenRequest } from "../../services/impersonation/types.js";
 import { ReplayService } from "../../services/replayService.js";
+import { withReplaySnapshot } from "../../db/transaction.js";
+import { RequestSnapshotsRepository } from "../../db/repositories/requestSnapshotsRepository.js";
 import { FailedInboundEventsRepository } from "../../db/repositories/failedInboundEventsRepository.js";
 import { registerAllReplayHandlers } from "../../services/replayHandlers.js";
 import { IdentityRepository } from "../../db/repositories/identityRepository.js";
@@ -377,5 +379,41 @@ export function createAdminRouter(): Router {
     }
   })
 
-  return router
+  /**
+   * POST /api/admin/replay
+   * Replays a request by requestId against captured snapshot and returns diff.
+   */
+  router.post('/replay', requireUserAuth, requireAdminRole, async (req: Request, res: Response, next) => {
+    try {
+      const { requestId } = req.body as { requestId: string };
+      if (!requestId) {
+        throw new ValidationError('Missing requestId');
+      }
+      const diff = await withReplaySnapshot(pool, async (client, snapshot) => {
+        const identityRepo = new IdentityRepository(client);
+        const bondsRepo = new BondsRepository(client);
+        const currentIdentities = await identityRepo.findAll();
+        const currentBonds = await bondsRepo.findAll();
+        const computeDiff = (current: any, previous: any) => {
+          const diffResult: any = { added: [], removed: [], changed: [] };
+          const currentMap = new Map(current.map((item: any) => [item.id, item]));
+          const prevMap = new Map(previous.map((item: any) => [item.id, item]));
+          for (const [id, cur] of currentMap) {
+            if (!prevMap.has(id)) diffResult.added.push(cur);
+            else if (JSON.stringify(cur) !== JSON.stringify(prevMap.get(id))) diffResult.changed.push({ before: prevMap.get(id), after: cur });
+          }
+          for (const [id, prev] of prevMap) {
+            if (!currentMap.has(id)) diffResult.removed.push(prev);
+          }
+          return diffResult;
+        };
+        const identitiesDiff = computeDiff(currentIdentities, snapshot.identities);
+        const bondsDiff = computeDiff(currentBonds, snapshot.bonds);
+        return { identities: identitiesDiff, bonds: bondsDiff };
+      }, requestId);
+      res.status(200).json({ success: true, data: diff });
+    } catch (error) {
+      next(error);
+    }
+  });
 }
