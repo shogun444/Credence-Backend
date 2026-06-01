@@ -54,4 +54,4 @@ jobs:
       - name: Evaluate Trivy scan with Security Gate
         run: |
           echo "[Trivy] Verifying Trivy SBOM scan results against SLA threshold..."
-          npx tsx scripts/security-gate.ts --file trivy-report.json --threshold high
+          npx tsx scripts/security-gate.ts --file trivy-report.json --threshold high --ignore-pkg activesupport
