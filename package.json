@@ -21,7 +21,7 @@
     "migrate:template": "tsx src/migrations/linter.ts template",
     "migrate:safety": "tsx src/migrations/linter.ts check --strict",
     "generate:openapi": "npx tsx scripts/generate-openapi.ts",
-    "generate:error-docs": "tsx scripts/generate-error-docs.ts"
+    "test:openapi-drift": "node scripts/openapi-drift.js"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",
