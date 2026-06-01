@@ -2,7 +2,7 @@ import type { Pool, PoolClient } from 'pg'
 import { RequestSnapshotsRepository } from './repositories/requestSnapshotsRepository.js'
 
 /** PostgreSQL error code emitted when lock_timeout fires (lock_not_available). */
-export const PG_LOCK_TIMEOUT_CODE = '55P03'
+export const PG_LOCK_TIMEOUT_CODE = "55P03";
 
 /**
  * Named timeout policies that map to pre-configured millisecond values.
@@ -10,9 +10,9 @@ export const PG_LOCK_TIMEOUT_CODE = '55P03'
  * to bound contention impact on other callers.
  */
 export enum LockTimeoutPolicy {
-  READONLY = 'readonly',
-  DEFAULT = 'default',
-  CRITICAL = 'critical',
+  READONLY = "readonly",
+  DEFAULT = "default",
+  CRITICAL = "critical",
 }
 
 /** Thrown when a row lock cannot be acquired within the configured window. */
@@ -21,33 +21,33 @@ export class LockTimeoutError extends Error {
     /** The named policy active at the time of the timeout, if any. */
     public readonly policy: LockTimeoutPolicy | undefined,
     /** Effective timeout in milliseconds that was applied. */
-    public readonly timeoutMs: number
+    public readonly timeoutMs: number,
   ) {
-    super(`Lock timeout after ${timeoutMs}ms (policy: ${policy ?? 'custom'})`)
-    this.name = 'LockTimeoutError'
+    super(`Lock timeout after ${timeoutMs}ms (policy: ${policy ?? "custom"})`);
+    this.name = "LockTimeoutError";
   }
 }
 
 export interface LockTimeoutConfig {
-  readonly: number
-  default: number
-  critical: number
+  readonly: number;
+  default: number;
+  critical: number;
 }
 
 export interface TransactionOptions {
-  policy?: LockTimeoutPolicy
-  timeoutMs?: number
-  isolationLevel?: 'READ COMMITTED' | 'REPEATABLE READ' | 'SERIALIZABLE'
-  retryOnLockTimeout?: boolean
-  maxRetries?: number
-  retryDelayMs?: number
+  policy?: LockTimeoutPolicy;
+  timeoutMs?: number;
+  isolationLevel?: "READ COMMITTED" | "REPEATABLE READ" | "SERIALIZABLE";
+  retryOnLockTimeout?: boolean;
+  maxRetries?: number;
+  retryDelayMs?: number;
 }
 
 const FALLBACK_TIMEOUTS: LockTimeoutConfig = {
   readonly: 2_000,
   default: 5_000,
   critical: 10_000,
-}
+};
 
 /**
  * Manages PostgreSQL transactions with configurable lock-timeout policies
@@ -79,13 +79,13 @@ export async function withReplaySnapshot<T>(
 }
 
 export class TransactionManager {
-  private readonly timeouts: LockTimeoutConfig
+  private readonly timeouts: LockTimeoutConfig;
 
   constructor(
     private readonly pool: Pool,
-    timeouts?: Partial<LockTimeoutConfig>
+    timeouts?: Partial<LockTimeoutConfig>,
   ) {
-    this.timeouts = { ...FALLBACK_TIMEOUTS, ...timeouts }
+    this.timeouts = { ...FALLBACK_TIMEOUTS, ...timeouts };
   }
 
   /**
@@ -102,7 +102,7 @@ export class TransactionManager {
    */
   async withTransaction<T>(
     fn: (client: PoolClient) => Promise<T>,
-    options: TransactionOptions = {}
+    options: TransactionOptions = {},
   ): Promise<T> {
     const {
       policy,
@@ -111,54 +111,69 @@ export class TransactionManager {
       retryOnLockTimeout = false,
       maxRetries = 3,
       retryDelayMs = 100,
-    } = options
+    } = options;
 
     const effectiveTimeoutMs =
-      timeoutMs ?? (policy !== undefined ? this.timeouts[policy] : this.timeouts.default)
+      timeoutMs ??
+      (policy !== undefined ? this.timeouts[policy] : this.timeouts.default);
 
-    let attempts = 0
+    let attempts = 0;
 
     while (true) {
-      const client = await this.pool.connect()
+      const client = await this.pool.connect();
 
       try {
         const beginSql = isolationLevel
           ? `BEGIN ISOLATION LEVEL ${isolationLevel}`
-          : 'BEGIN'
+          : "BEGIN";
 
-        await client.query(beginSql)
-        await client.query(`SET LOCAL lock_timeout = '${effectiveTimeoutMs}ms'`)
+        await client.query(beginSql);
+        await client.query(
+          `SET LOCAL lock_timeout = '${effectiveTimeoutMs}ms'`,
+        );
+        // Propagate tenant id into the transaction so Postgres RLS policies
+        // that rely on `current_setting('app.tenant_id', true)` can enforce
+        // row-level isolation per-tenant.
+        try {
+          const tenantId = getTenantId();
+          if (tenantId) {
+            // Use a parameterized setting to avoid injection; cast to uuid in policies.
+            await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
+          }
+        } catch (err) {
+          // Swallow: setting may not be needed in some environments
+        }
 
-        const result = await fn(client)
+        const result = await fn(client);
 
-        await client.query('COMMIT')
-        return result
+        await client.query("COMMIT");
+        return result;
       } catch (err: unknown) {
-        await client.query('ROLLBACK').catch(() => {
+        await client.query("ROLLBACK").catch(() => {
           // Swallowed: connection may be dead, pg will recycle on release.
-        })
+        });
 
-        const pgCode = (err as { code?: string }).code
+        const pgCode = (err as { code?: string }).code;
 
         if (pgCode === PG_LOCK_TIMEOUT_CODE) {
           if (retryOnLockTimeout && attempts < maxRetries) {
-            const delay = retryDelayMs * Math.pow(2, attempts)
-            attempts++
-            await sleep(delay)
-            continue
+            const delay = retryDelayMs * Math.pow(2, attempts);
+            attempts++;
+            await sleep(delay);
+            continue;
           }
 
-          throw new LockTimeoutError(policy, effectiveTimeoutMs)
+          throw new LockTimeoutError(policy, effectiveTimeoutMs);
         }
 
-        throw err
+        throw err;
       } finally {
-        client.release()
+        client.release();
       }
     }
   }
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

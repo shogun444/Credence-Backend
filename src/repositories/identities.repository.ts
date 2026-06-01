@@ -1,15 +1,16 @@
-import type Database from 'better-sqlite3'
+import type Database from "better-sqlite3";
+import { getTenantId } from "../utils/tenantContext.js";
 
 /** Row shape for the identities table. */
 export interface Identity {
-  id: number
-  address: string
-  created_at: string
+  id: number;
+  address: string;
+  created_at: string;
 }
 
 /** Input for creating a new identity. */
 export interface CreateIdentityInput {
-  address: string
+  address: string;
 }
 
 /**
@@ -17,13 +18,19 @@ export interface CreateIdentityInput {
  * Provides basic CRUD operations for identity records.
  */
 export class IdentitiesRepository {
-  private db: Database.Database
+  private db: Database.Database;
 
   /**
    * @param db - A better-sqlite3 Database instance with migrations already applied.
    */
   constructor(db: Database.Database) {
-    this.db = db
+    this.db = db;
+  }
+
+  private assertTenant(): string {
+    const t = getTenantId();
+    if (!t) throw new Error("Missing tenant context");
+    return t;
   }
 
   /**
@@ -33,11 +40,12 @@ export class IdentitiesRepository {
    * @returns The newly created identity record.
    */
   create(input: CreateIdentityInput): Identity {
+    this.assertTenant();
     const stmt = this.db.prepare(
-      'INSERT INTO identities (address) VALUES (@address)'
-    )
-    const result = stmt.run({ address: input.address })
-    return this.findById(result.lastInsertRowid as number)!
+      "INSERT INTO identities (address) VALUES (@address)",
+    );
+    const result = stmt.run({ address: input.address });
+    return this.findById(result.lastInsertRowid as number)!;
   }
 
   /**
@@ -47,8 +55,8 @@ export class IdentitiesRepository {
    * @returns The identity record, or undefined if not found.
    */
   findById(id: number): Identity | undefined {
-    const stmt = this.db.prepare('SELECT * FROM identities WHERE id = ?')
-    return stmt.get(id) as Identity | undefined
+    const stmt = this.db.prepare("SELECT * FROM identities WHERE id = ?");
+    return stmt.get(id) as Identity | undefined;
   }
 
   /**
@@ -58,8 +66,8 @@ export class IdentitiesRepository {
    * @returns The identity record, or undefined if not found.
    */
   findByAddress(address: string): Identity | undefined {
-    const stmt = this.db.prepare('SELECT * FROM identities WHERE address = ?')
-    return stmt.get(address) as Identity | undefined
+    const stmt = this.db.prepare("SELECT * FROM identities WHERE address = ?");
+    return stmt.get(address) as Identity | undefined;
   }
 
   /**
@@ -68,7 +76,7 @@ export class IdentitiesRepository {
    * @returns An array of all identity records.
    */
   findAll(): Identity[] {
-    const stmt = this.db.prepare('SELECT * FROM identities ORDER BY id ASC')
-    return stmt.all() as Identity[]
+    const stmt = this.db.prepare("SELECT * FROM identities ORDER BY id ASC");
+    return stmt.all() as Identity[];
   }
 }

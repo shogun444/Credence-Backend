@@ -1,45 +1,46 @@
-import type { Queryable } from './queryable.js'
+import type { Queryable } from "./queryable.js";
+import { getTenantId } from "../../utils/tenantContext.js";
 
 export interface Attestation {
-  id: number
-  bondId: number
-  attesterAddress: string
-  subjectAddress: string
-  score: number
-  note: string | null
-  createdAt: Date
+  id: number;
+  bondId: number;
+  attesterAddress: string;
+  subjectAddress: string;
+  score: number;
+  note: string | null;
+  createdAt: Date;
 }
 
 export interface CreateAttestationInput {
-  bondId: number
-  attesterAddress: string
-  subjectAddress: string
-  score: number
-  note?: string | null
+  bondId: number;
+  attesterAddress: string;
+  subjectAddress: string;
+  score: number;
+  note?: string | null;
 }
 
 export interface ListAttestationsPageOptions {
-  offset: number
-  limit: number
+  offset: number;
+  limit: number;
 }
 
 export interface AttestationPage {
-  attestations: Attestation[]
-  total: number
+  attestations: Attestation[];
+  total: number;
 }
 
 type AttestationRow = {
-  id: string | number
-  bond_id: string | number
-  attester_address: string
-  subject_address: string
-  score: number
-  note: string | null
-  created_at: Date | string
-}
+  id: string | number;
+  bond_id: string | number;
+  attester_address: string;
+  subject_address: string;
+  score: number;
+  note: string | null;
+  created_at: Date | string;
+};
 
 const toDate = (value: Date | string): Date =>
-  value instanceof Date ? value : new Date(value)
+  value instanceof Date ? value : new Date(value);
 
 const mapAttestation = (row: AttestationRow): Attestation => ({
   id: Number(row.id),
@@ -49,12 +50,19 @@ const mapAttestation = (row: AttestationRow): Attestation => ({
   score: row.score,
   note: row.note,
   createdAt: toDate(row.created_at),
-})
+});
 
 export class AttestationsRepository {
   constructor(private readonly db: Queryable) {}
 
+  private assertTenant(): string {
+    const t = getTenantId();
+    if (!t) throw new Error("Missing tenant context");
+    return t;
+  }
+
   async create(input: CreateAttestationInput): Promise<Attestation> {
+    this.assertTenant();
     const result = await this.db.query<AttestationRow>(
       `
       INSERT INTO attestations (bond_id, attester_address, subject_address, score, note)
@@ -67,26 +75,28 @@ export class AttestationsRepository {
         input.subjectAddress,
         input.score,
         input.note ?? null,
-      ]
-    )
+      ],
+    );
 
-    return mapAttestation(result.rows[0])
+    return mapAttestation(result.rows[0]);
   }
 
   async findById(id: number): Promise<Attestation | null> {
+    this.assertTenant();
     const result = await this.db.query<AttestationRow>(
       `
       SELECT id, bond_id, attester_address, subject_address, score, note, created_at
       FROM attestations
       WHERE id = $1
       `,
-      [id]
-    )
+      [id],
+    );
 
-    return result.rows[0] ? mapAttestation(result.rows[0]) : null
+    return result.rows[0] ? mapAttestation(result.rows[0]) : null;
   }
 
   async listBySubject(subjectAddress: string): Promise<Attestation[]> {
+    this.assertTenant();
     const result = await this.db.query<AttestationRow>(
       `
       SELECT id, bond_id, attester_address, subject_address, score, note, created_at
@@ -94,16 +104,17 @@ export class AttestationsRepository {
       WHERE subject_address = $1
       ORDER BY created_at DESC, id DESC
       `,
-      [subjectAddress]
-    )
+      [subjectAddress],
+    );
 
-    return result.rows.map(mapAttestation)
+    return result.rows.map(mapAttestation);
   }
 
   async listBySubjectPage(
     subjectAddress: string,
-    options: ListAttestationsPageOptions
+    options: ListAttestationsPageOptions,
   ): Promise<AttestationPage> {
+    this.assertTenant();
     const [items, count] = await Promise.all([
       this.db.query<AttestationRow>(
         `
@@ -113,7 +124,7 @@ export class AttestationsRepository {
         ORDER BY created_at DESC, id DESC
         LIMIT $2 OFFSET $3
         `,
-        [subjectAddress, options.limit, options.offset]
+        [subjectAddress, options.limit, options.offset],
       ),
       this.db.query<{ total: string | number }>(
         `
@@ -121,17 +132,18 @@ export class AttestationsRepository {
         FROM attestations
         WHERE subject_address = $1
         `,
-        [subjectAddress]
+        [subjectAddress],
       ),
-    ])
+    ]);
 
     return {
       attestations: items.rows.map(mapAttestation),
       total: Number(count.rows[0]?.total ?? 0),
-    }
+    };
   }
 
   async listByBond(bondId: number): Promise<Attestation[]> {
+    this.assertTenant();
     const result = await this.db.query<AttestationRow>(
       `
       SELECT id, bond_id, attester_address, subject_address, score, note, created_at
@@ -139,13 +151,14 @@ export class AttestationsRepository {
       WHERE bond_id = $1
       ORDER BY created_at DESC, id DESC
       `,
-      [bondId]
-    )
+      [bondId],
+    );
 
-    return result.rows.map(mapAttestation)
+    return result.rows.map(mapAttestation);
   }
 
   async updateScore(id: number, score: number): Promise<Attestation | null> {
+    this.assertTenant();
     const result = await this.db.query<AttestationRow>(
       `
       UPDATE attestations
@@ -153,21 +166,22 @@ export class AttestationsRepository {
       WHERE id = $1
       RETURNING id, bond_id, attester_address, subject_address, score, note, created_at
       `,
-      [id, score]
-    )
+      [id, score],
+    );
 
-    return result.rows[0] ? mapAttestation(result.rows[0]) : null
+    return result.rows[0] ? mapAttestation(result.rows[0]) : null;
   }
 
   async delete(id: number): Promise<boolean> {
+    this.assertTenant();
     const result = await this.db.query(
       `
       DELETE FROM attestations
       WHERE id = $1
       `,
-      [id]
-    )
+      [id],
+    );
 
-    return (result.rowCount ?? 0) > 0
+    return (result.rowCount ?? 0) > 0;
   }
 }
