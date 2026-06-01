@@ -46,12 +46,12 @@ describe('InMemoryAuditLogsRepository', () => {
       tenantId: 'tenant-2',
     })
 
-    const byActor = await repository.query({ actorId: 'admin-1' }, 50, 0)
-    expect(byActor.total).toBe(1)
+    const byActor = await repository.query({ actorId: 'admin-1' }, 50)
+    expect(byActor.logs).toHaveLength(1)
     expect(byActor.logs[0].actorId).toBe('admin-1')
 
-    const byResource = await repository.query({ resourceId: 'user-b' }, 50, 0)
-    expect(byResource.total).toBe(1)
+    const byResource = await repository.query({ resourceId: 'user-b' }, 50)
+    expect(byResource.logs).toHaveLength(1)
     expect(byResource.logs[0].resourceId).toBe('user-b')
   })
 
@@ -91,25 +91,32 @@ describe('InMemoryAuditLogsRepository', () => {
       tenantId: 'tenant-1',
     })
 
-    const range = await repository.query({ from: current }, 10, 0)
-    expect(range.total).toBe(1)
+    const range = await repository.query({ from: current }, 10)
+    expect(range.logs).toHaveLength(1)
     expect(range.logs[0].resourceId).toBe('user-2')
 
-    const paged = await repository.query(undefined, 1, 1)
-    expect(paged.logs).toHaveLength(1)
-    expect(paged.total).toBe(3)
+    // Test cursor-based paging with limit 1
+    const paged1 = await repository.query(undefined, 1)
+    expect(paged1.logs).toHaveLength(1)
+    expect(paged1.hasNextPage).toBe(true)
+    expect(paged1.nextCursor).toBeDefined()
 
-    const byAdminAlias = await repository.query({ adminId: 'admin-2' }, 10, 0)
-    expect(byAdminAlias.total).toBe(1)
+    // Page 2 using nextCursor
+    const paged2 = await repository.query(undefined, 1, paged1.nextCursor)
+    expect(paged2.logs).toHaveLength(1)
+    expect(paged2.hasNextPage).toBe(true)
 
-    const byTargetAlias = await repository.query({ targetUserId: 'user-1' }, 10, 0)
-    expect(byTargetAlias.total).toBe(1)
+    const byAdminAlias = await repository.query({ adminId: 'admin-2' }, 10)
+    expect(byAdminAlias.logs).toHaveLength(1)
 
-    const byStatus = await repository.query({ status: 'success' }, 10, 0)
-    expect(byStatus.total).toBe(3)
+    const byTargetAlias = await repository.query({ targetUserId: 'user-1' }, 10)
+    expect(byTargetAlias.logs).toHaveLength(1)
 
-    const byResourceType = await repository.query({ resourceType: 'user' }, 10, 0)
-    expect(byResourceType.total).toBe(2)
+    const byStatus = await repository.query({ status: 'success' }, 10)
+    expect(byStatus.logs).toHaveLength(3)
+
+    const byResourceType = await repository.query({ resourceType: 'user' }, 10)
+    expect(byResourceType.logs).toHaveLength(2)
   })
 })
 
@@ -138,7 +145,6 @@ describe('PostgresAuditLogsRepository', () => {
             },
           ],
         })
-        .mockResolvedValueOnce({ rows: [{ total: '1' }] })
         .mockResolvedValueOnce({
           rows: [
             {
@@ -188,40 +194,35 @@ describe('PostgresAuditLogsRepository', () => {
         to: '2024-12-31T23:59:59.000Z',
       },
       10,
-      0,
     )
 
-    expect(result.total).toBe(1)
+    expect(result.logs).toHaveLength(1)
     expect(result.logs[0].id).toBe('query-id')
     expect(result.logs[0].errorMessage).toBe('conflict')
 
     await repository.clear()
 
-    expect(db.query).toHaveBeenCalledTimes(4)
-    expect(String(db.query.mock.calls[3][0])).toContain('DELETE FROM audit_logs')
+    expect(db.query).toHaveBeenCalledTimes(3)
+    expect(String(db.query.mock.calls[2][0])).toContain('DELETE FROM audit_logs')
   })
 
   it('supports actor/resource aliases in filters', async () => {
     const db = {
       query: vi
         .fn()
-        .mockResolvedValueOnce({ rows: [{ total: '0' }] })
         .mockResolvedValueOnce({ rows: [] }),
     }
 
     const repository = new PostgresAuditLogsRepository(db as any)
-    await repository.query({ adminId: 'admin-7', targetUserId: 'user-9' }, 5, 2)
+    await repository.query({ adminId: 'admin-7', targetUserId: 'user-9' }, 5)
 
-    const countSql = String(db.query.mock.calls[0][0])
-    const selectSql = String(db.query.mock.calls[1][0])
-    const countParams = db.query.mock.calls[0][1]
-    const selectParams = db.query.mock.calls[1][1]
+    expect(db.query).toHaveBeenCalledTimes(1)
+    const sql = String(db.query.mock.calls[0][0])
+    const params = db.query.mock.calls[0][1]
 
-    expect(countSql).toContain('actor_id = $1')
-    expect(countSql).toContain('resource_id = $2')
-    expect(selectSql).toContain('LIMIT $3')
-    expect(selectSql).toContain('OFFSET $4')
-    expect(countParams.slice(0, 2)).toEqual(['admin-7', 'user-9'])
-    expect(selectParams).toEqual(['admin-7', 'user-9', 5, 2])
+    expect(sql).toContain('actor_id = $1')
+    expect(sql).toContain('resource_id = $2')
+    expect(sql).toContain('LIMIT $3')
+    expect(params).toEqual(['admin-7', 'user-9', 6])
   })
 })

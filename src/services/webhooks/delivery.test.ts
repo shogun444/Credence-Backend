@@ -53,7 +53,7 @@ describe('deliverWebhook', () => {
     ...mockWebhook,
     clientCertPem: '-----BEGIN CERTIFICATE-----\nMIICXzCCAkegAwIBAgIJAJC1HiIAZAiUMA0G...',
     clientKeyKmsRef: 'kms://arn:aws:kms:us-east-1:123456789012:key/abc123',
-    pinnedServerCertSha256: 'a1b2c3d4e5f6...',
+    pinnedServerCertSha256: '187c7a35ca03f76670defe6a8925690a744506a4004988114eb88ae177088404',
   }
 
   beforeEach(() => {
@@ -146,6 +146,7 @@ describe('deliverWebhook', () => {
     const result = await deliverWebhook(mTLSWebhook, mockPayload, {
       maxRetries: 2,
       initialDelay: 100,
+      sleepFn: () => Promise.resolve(),
     })
 
     await vi.advanceTimersByTimeAsync(100)
@@ -412,6 +413,7 @@ describe('deliverWebhook', () => {
     const result = await deliverWebhook(mTLSWebhook, mockPayload, {
       maxRetries: 1,
       initialDelay: 100,
+      sleepFn: () => Promise.resolve(),
     })
 
     await vi.advanceTimersByTimeAsync(100)

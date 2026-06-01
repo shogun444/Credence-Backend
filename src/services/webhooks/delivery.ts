@@ -76,7 +76,7 @@ function constantTimeEqual(a: string, b: string): boolean {
 /**
  * Create an HTTPS agent with mTLS configuration if provided.
  */
-function createHttpsAgent(webhook: WebhookConfig, customAgent?: https.Agent): https.Agent {
+function createHttpsAgent(webhook: WebhookConfig, customAgent?: https.Agent): https.Agent | undefined {
   // Use custom agent if provided (for testing)
   if (customAgent) {
     return customAgent
@@ -84,7 +84,7 @@ function createHttpsAgent(webhook: WebhookConfig, customAgent?: https.Agent): ht
 
   // If no mTLS configuration, use default agent
   if (!webhook.clientCertPem || !webhook.clientKeyKmsRef) {
-    return new https.Agent()
+    return undefined
   }
 
   // In production, clientKeyKmsRef would be resolved from KMS
