@@ -240,6 +240,61 @@ export const envSchema = z.object({
     .default('5')
     .transform(Number)
     .pipe(z.number().int().min(1)),
+  SOROBAN_CIRCUIT_BREAKER_FAILURE_THRESHOLD: z
+    .string()
+    .default('5')
+    .transform(Number)
+    .pipe(z.number().int().min(1)),
+  SOROBAN_CIRCUIT_BREAKER_COOLDOWN_MS: z
+    .string()
+    .default('10000')
+    .transform(Number)
+    .pipe(z.number().int().min(1000)),
+  DB_LOCK_TIMEOUT_READONLY_MS: z
+    .string()
+    .default('1000')
+    .transform(Number)
+    .pipe(z.number().int().min(0)),
+  DB_LOCK_TIMEOUT_DEFAULT_MS: z
+    .string()
+    .default('2000')
+    .transform(Number)
+    .pipe(z.number().int().min(0)),
+  DB_LOCK_TIMEOUT_CRITICAL_MS: z
+    .string()
+    .default('5000')
+    .transform(Number)
+    .pipe(z.number().int().min(0)),
+  TIMEOUT_DB_MS: z
+    .string()
+    .default('2000')
+    .transform(Number)
+    .pipe(z.number().int().min(0)),
+  TIMEOUT_CACHE_MS: z
+    .string()
+    .default('500')
+    .transform(Number)
+    .pipe(z.number().int().min(0)),
+  TIMEOUT_QUEUE_MS: z
+    .string()
+    .default('1000')
+    .transform(Number)
+    .pipe(z.number().int().min(0)),
+  TIMEOUT_HTTP_MS: z
+    .string()
+    .default('5000')
+    .transform(Number)
+    .pipe(z.number().int().min(0)),
+  TIMEOUT_SOROBAN_MS: z
+    .string()
+    .default('5000')
+    .transform(Number)
+    .pipe(z.number().int().min(0)),
+  TIMEOUT_WEBHOOK_MS: z
+    .string()
+    .default('10000')
+    .transform(Number)
+    .pipe(z.number().int().min(0)),
 })
 
 export type Env = z.infer<typeof envSchema>
@@ -337,6 +392,10 @@ export interface Config {
     oneEthWei: bigint
     maxDurationDays: number
     maxAttestationCount: number
+  }
+  sorobanCircuitBreaker: {
+    failureThreshold: number
+    cooldownPeriodMs: number
   }
 }
 
@@ -481,6 +540,10 @@ function mapEnvToConfig(env: Env): Config {
     },
     trustScoreCache: {
       ttl: env.TRUST_SCORE_CACHE_TTL,
+    },
+    sorobanCircuitBreaker: {
+      failureThreshold: env.SOROBAN_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+      cooldownPeriodMs: env.SOROBAN_CIRCUIT_BREAKER_COOLDOWN_MS,
     },
   }
 

@@ -24,6 +24,10 @@ registerLatencyMetrics(register)
 // Register database connection pool metrics
 registerPoolMetrics(register, pool, workerPool)
 
+// Register circuit breaker metrics
+import { registerCircuitBreakerMetrics } from '../clients/circuitBreaker.js'
+registerCircuitBreakerMetrics(register)
+
 // Add default Node.js metrics (CPU, memory, event loop, etc.)
 client.collectDefaultMetrics({ 
   register,

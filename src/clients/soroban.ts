@@ -10,6 +10,9 @@ import { normalizeTransportError, isAbortError } from './httpErrors.js'
 import { classifyTransportError } from '../utils/retryClassifier.js'
 import { logger } from '../utils/logger.js'
 import { resolveTimeout, createTimeoutConfig } from '../lib/timeouts.js'
+import { validateConfig } from '../config/index.js'
+import { getCircuitBreaker } from './circuitBreaker.js'
+import { type RetryObserver, noopRetryObserver } from '../observability/retryMetrics.js'
 
 export type SorobanNetwork = 'testnet' | 'mainnet'
 
@@ -22,6 +25,10 @@ export interface SorobanClientConfig {
   timeoutMs?: number
   retry?: Partial<RetryOptions>
   retryPolicies?: ProviderRetryPolicies
+  circuitBreaker?: {
+    failureThreshold?: number
+    cooldownPeriodMs?: number
+  }
 }
 
 export interface ContractEvent {
@@ -114,6 +121,7 @@ export class SorobanClient {
   private readonly randomFn: () => number
   private readonly retryObserver: RetryObserver
   private readonly metrics = createMetricsAdapter(createDefaultMetricsCollector())
+  private readonly circuitBreakerConfig: { failureThreshold: number; cooldownPeriodMs: number }
 
   constructor(config: SorobanClientConfig, deps: SorobanClientDependencies = {}) {
     this.assertConfig(config)
@@ -133,6 +141,26 @@ export class SorobanClient {
     this.sleepFn = deps.sleepFn ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
     this.randomFn = deps.randomFn ?? Math.random
     this.retryObserver = deps.retryObserver ?? noopRetryObserver
+
+    let defaultFailureThreshold = 5
+    let defaultCooldownMs = 10000
+    try {
+      const globalConfig = validateConfig(process.env)
+      defaultFailureThreshold = globalConfig.sorobanCircuitBreaker.failureThreshold
+      defaultCooldownMs = globalConfig.sorobanCircuitBreaker.cooldownPeriodMs
+    } catch {
+      if (process.env.SOROBAN_CIRCUIT_BREAKER_FAILURE_THRESHOLD) {
+        defaultFailureThreshold = Number(process.env.SOROBAN_CIRCUIT_BREAKER_FAILURE_THRESHOLD)
+      }
+      if (process.env.SOROBAN_CIRCUIT_BREAKER_COOLDOWN_MS) {
+        defaultCooldownMs = Number(process.env.SOROBAN_CIRCUIT_BREAKER_COOLDOWN_MS)
+      }
+    }
+
+    this.circuitBreakerConfig = {
+      failureThreshold: config.circuitBreaker?.failureThreshold ?? defaultFailureThreshold,
+      cooldownPeriodMs: config.circuitBreaker?.cooldownPeriodMs ?? defaultCooldownMs,
+    }
   }
 
   /**
@@ -197,66 +225,77 @@ export class SorobanClient {
   }
 
   private async callRpc<T>(method: string, params: Record<string, unknown>): Promise<T> {
-    let attempt = 0
-    let lastError: SorobanClientError | null = null
-    const startMs = Date.now()
-
-    while (attempt < this.retryOptions.maxAttempts) {
-      attempt += 1
-      try {
-        const result = await this.executeRpc<T>(method, params, attempt)
-        this.retryObserver.onSuccess?.({
-          provider: 'soroban',
-          attempt,
-          durationMs: Date.now() - startMs,
-        })
-        return result
-      } catch (error) {
-        const normalized = this.normalizeError(error, attempt)
-        lastError = normalized
-
-        const hasAttemptsRemaining = attempt < this.retryOptions.maxAttempts
-        const shouldRetry = hasAttemptsRemaining && this.isRetryable(normalized)
-
-        if (!shouldRetry) {
-          if (!hasAttemptsRemaining || !this.isRetryable(normalized)) {
-            this.retryObserver.onRetryExhausted?.({
-              provider: 'soroban',
-              attempts: attempt,
-              errorCode: normalized.code,
-            })
-          }
-          throw normalized
-        }
-
-        const delay = this.getDelayMs(attempt)
-        this.retryObserver.onRetryAttempt?.({
-          provider: 'soroban',
-          attempt,
-          delayMs: delay,
-          errorCode: normalized.code,
-        })
-        logger.info(
-          `Retrying outbound request provider=soroban attempt=${attempt + 1}/${this.retryOptions.maxAttempts} delayMs=${delay} code=${normalized.code}`,
-        )
-        await this.sleepFn(delay)
-      }
+    let host = 'unknown'
+    try {
+      host = new URL(this.rpcUrl).host
+    } catch {
+      host = this.rpcUrl
     }
 
-    this.retryObserver.onRetryExhausted?.({
-      provider: 'soroban',
-      attempts: attempt,
-      errorCode: lastError?.code ?? 'NETWORK_ERROR',
-    })
+    const breaker = getCircuitBreaker(host, this.circuitBreakerConfig)
 
-    throw (
-      lastError ??
-      new SorobanClientError({
-        code: 'NETWORK_ERROR',
-        message: `Unknown Soroban RPC failure after ${this.retryOptions.maxAttempts} attempts.`,
-        attempts: this.retryOptions.maxAttempts,
+    return breaker.execute(async () => {
+      let attempt = 0
+      let lastError: SorobanClientError | null = null
+      const startMs = Date.now()
+
+      while (attempt < this.retryOptions.maxAttempts) {
+        attempt += 1
+        try {
+          const result = await this.executeRpc<T>(method, params, attempt)
+          this.retryObserver.onSuccess?.({
+            provider: 'soroban',
+            attempt,
+            durationMs: Date.now() - startMs,
+          })
+          return result
+        } catch (error) {
+          const normalized = this.normalizeError(error, attempt)
+          lastError = normalized
+
+          const hasAttemptsRemaining = attempt < this.retryOptions.maxAttempts
+          const shouldRetry = hasAttemptsRemaining && this.isRetryable(normalized)
+
+          if (!shouldRetry) {
+            if (!hasAttemptsRemaining || !this.isRetryable(normalized)) {
+              this.retryObserver.onRetryExhausted?.({
+                provider: 'soroban',
+                attempts: attempt,
+                errorCode: normalized.code,
+              })
+            }
+            throw normalized
+          }
+
+          const delay = this.getDelayMs(attempt)
+          this.retryObserver.onRetryAttempt?.({
+            provider: 'soroban',
+            attempt,
+            delayMs: delay,
+            errorCode: normalized.code,
+          })
+          logger.info(
+            `Retrying outbound request provider=soroban attempt=${attempt + 1}/${this.retryOptions.maxAttempts} delayMs=${delay} code=${normalized.code}`,
+          )
+          await this.sleepFn(delay)
+        }
+      }
+
+      this.retryObserver.onRetryExhausted?.({
+        provider: 'soroban',
+        attempts: attempt,
+        errorCode: lastError?.code ?? 'NETWORK_ERROR',
       })
-    )
+
+      throw (
+        lastError ??
+        new SorobanClientError({
+          code: 'NETWORK_ERROR',
+          message: `Unknown Soroban RPC failure after ${this.retryOptions.maxAttempts} attempts.`,
+          attempts: this.retryOptions.maxAttempts,
+        })
+      )
+    })
   }
 
   private async executeRpc<T>(

@@ -153,3 +153,15 @@ groups:
           description: >-
             Worker pool has {{ $value }} jobs queued waiting for a
             connection for >5 minutes.
+
+      # Soroban circuit breaker open
+      - alert: SorobanCircuitBreakerOpen
+        expr: soroban_circuit_state == 1
+        for: 2m
+        labels:
+          severity: critical
+          service: credence-backend
+        annotations:
+          summary: "Soroban circuit breaker is OPEN for {{ $labels.host }}"
+          description: "Soroban circuit breaker for host {{ $labels.host }} has been OPEN for more than 2 minutes."
+
