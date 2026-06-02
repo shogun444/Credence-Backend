@@ -24,7 +24,10 @@ async function buildTestPool(): Promise<Pool> {
       next_attempt_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       processed_at TIMESTAMPTZ,
-      error_message TEXT
+      error_message TEXT,
+      trace_id TEXT,
+      span_id TEXT,
+      tracestate TEXT
     )
   `)
 
@@ -65,6 +68,9 @@ function baseEvent(overrides: Partial<OutboxEvent> = {}): OutboxEvent {
     createdAt: new Date(),
     processedAt: null,
     errorMessage: null,
+    traceId: null,
+    spanId: null,
+    tracestate: null,
     ...overrides,
   }
 }

@@ -21,6 +21,7 @@ import {
   incrementOutboxLeaseRenew,
   incrementOutboxQuarantine,
 } from '../../observability/index.js'
+import { trace, context, SpanContext, TraceFlags, SpanStatusCode } from '@opentelemetry/api'
 
 /**
  * Event handler that processes published domain events.
@@ -286,32 +287,68 @@ export class OutboxPublisher {
       return
     }
 
-    try {
-      await this.publisher.publish(event)
-      await this.repository.markPublished(pool, event.id)
-      incrementOutboxPublished(event.aggregateType)
-      logger.info(`[OutboxPublisher] Published event ${event.id} (${event.eventType})`)
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      incrementOutboxFailed(event.aggregateType)
-      logger.error(
-        { message: `[OutboxPublisher] Failed to publish event ${event.id} (${event.eventType})`, error: errorMessage },
-        error
-      )
-      try {
-        const result = await this.repository.markFailed(pool, event.id, errorMessage)
-        if (result?.status === 'dead_letter') {
-          // Normalize a short error code for metrics
-          const code = (errorMessage.split(/\s+/)[0] || 'UNKNOWN')
-            .toUpperCase()
-            .replace(/[^A-Z0-9_]/g, '_')
-            .slice(0, 50)
-          incrementOutboxDeadLetter(code)
-          logger.warn(`[OutboxPublisher] Event ${event.id} moved to dead-letter`)
-        }
-      } catch (err) {
-        logger.error('[OutboxPublisher] Error marking event failed', err)
+    // Create parent span context from stored trace data if available
+    let parentSpanContext: SpanContext | undefined
+    if (event.traceId && event.spanId) {
+      parentSpanContext = {
+        traceId: event.traceId,
+        spanId: event.spanId,
+        traceFlags: TraceFlags.SAMPLED,
       }
+      if (event.tracestate) {
+        parentSpanContext.traceState = trace.propagation().traceStateFromString(event.tracestate)
+      }
+    }
+
+    const tracer = trace.getTracer('outbox-publisher')
+    const links = parentSpanContext ? [{ context: parentSpanContext }] : []
+
+    try {
+      await tracer.startActiveSpan('outbox.publish', { links, attributes: { 'outbox.event.id': event.id.toString(), 'outbox.event.type': event.eventType, 'outbox.aggregate.type': event.aggregateType, 'outbox.aggregate.id': event.aggregateId } }, async (span) => {
+        try {
+          // If we have a span context, set it as active context for publishing
+          if (parentSpanContext) {
+            const ctx = trace.setSpanContext(context.active(), parentSpanContext)
+            await context.with(ctx, async () => {
+              await this.publisher.publish(event)
+            })
+          } else {
+            await this.publisher.publish(event)
+          }
+          await this.repository.markPublished(pool, event.id)
+          incrementOutboxPublished(event.aggregateType)
+          logger.info(`[OutboxPublisher] Published event ${event.id} (${event.eventType})`)
+          span.setStatus({ code: SpanStatusCode.OK })
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error)
+          incrementOutboxFailed(event.aggregateType)
+          logger.error(
+            { message: `[OutboxPublisher] Failed to publish event ${event.id} (${event.eventType})`, error: errorMessage },
+            error
+          )
+          try {
+            const result = await this.repository.markFailed(pool, event.id, errorMessage)
+            if (result?.status === 'dead_letter') {
+              // Normalize a short error code for metrics
+              const code = (errorMessage.split(/\s+/)[0] || 'UNKNOWN')
+                .toUpperCase()
+                .replace(/[^A-Z0-9_]/g, '_')
+                .slice(0, 50)
+              incrementOutboxDeadLetter(code)
+              logger.warn(`[OutboxPublisher] Event ${event.id} moved to dead-letter`)
+            }
+          } catch (err) {
+            logger.error('[OutboxPublisher] Error marking event failed', err)
+          }
+          span.setStatus({ code: SpanStatusCode.ERROR, message: errorMessage })
+          span.recordException(error as Error)
+          throw error
+        } finally {
+          span.end()
+        }
+      })
+    } catch (_) {
+      // Error already handled in the span's callback
     }
   }
 

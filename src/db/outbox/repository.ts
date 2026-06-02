@@ -22,6 +22,9 @@ type OutboxEventRow = {
   error_message: string | null
   consumer_id?: string | null
   lease_expires_at?: string | null
+  trace_id?: string | null
+  span_id?: string | null
+  tracestate?: string | null
 }
 
 type OutboxQuarantineRow = {
@@ -80,6 +83,9 @@ function mapOutboxEvent(row: OutboxEventRow): OutboxEvent {
     createdAt: new Date(row.created_at),
     processedAt: row.processed_at ? new Date(row.processed_at) : null,
     errorMessage: row.error_message,
+    traceId: row.trace_id,
+    spanId: row.span_id,
+    tracestate: row.tracestate,
   }
 }
 
@@ -112,8 +118,8 @@ export class OutboxRepository {
    */
   async create(db: Queryable, event: CreateOutboxEvent): Promise<bigint> {
     const result = await db.query<{ id: string }>(
-      `INSERT INTO event_outbox (aggregate_type, aggregate_id, event_type, payload, status, max_retries)
-       VALUES ($1, $2, $3, $4, 'pending', $5)
+      `INSERT INTO event_outbox (aggregate_type, aggregate_id, event_type, payload, status, max_retries, trace_id, span_id, tracestate)
+       VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8)
        RETURNING id`,
       [
         event.aggregateType,
@@ -121,6 +127,9 @@ export class OutboxRepository {
         event.eventType,
         JSON.stringify(event.payload),
         event.maxRetries ?? 5,
+        event.traceId,
+        event.spanId,
+        event.tracestate,
       ]
     )
     return BigInt(result.rows[0].id)
@@ -159,6 +168,9 @@ export class OutboxRepository {
         error_message: string | null
         consumer_id: string | null
         lease_expires_at: string | null
+        trace_id: string | null
+        span_id: string | null
+        tracestate: string | null
       }>(
         `UPDATE event_outbox
          SET status = 'processing',
@@ -174,7 +186,7 @@ export class OutboxRepository {
          )
          RETURNING id, aggregate_type, aggregate_id, event_type, payload, status,
                    retry_count, max_retries, created_at, processed_at, error_message,
-                   consumer_id, lease_expires_at`,
+                   consumer_id, lease_expires_at, trace_id, span_id, tracestate`,
         [limit, consumerId, leaseSeconds.toString()]
       )
 
@@ -195,6 +207,9 @@ export class OutboxRepository {
         error_message: string | null
         consumer_id: string | null
         lease_expires_at: string | null
+        trace_id: string | null
+        span_id: string | null
+        tracestate: string | null
       }>(
         `UPDATE event_outbox
          SET status = 'processing',
@@ -209,7 +224,7 @@ export class OutboxRepository {
          )
          RETURNING id, aggregate_type, aggregate_id, event_type, payload, status,
                    retry_count, max_retries, created_at, processed_at, error_message,
-                   consumer_id, lease_expires_at`,
+                   consumer_id, lease_expires_at, trace_id, span_id, tracestate`,
         [limit, consumerId, leaseSeconds.toString()]
       )
 
@@ -278,10 +293,13 @@ export class OutboxRepository {
       error_message: string | null
       consumer_id: string | null
       lease_expires_at: string | null
+      trace_id: string | null
+      span_id: string | null
+      tracestate: string | null
     }>(
       `SELECT id, aggregate_type, aggregate_id, event_type, payload, status,
               retry_count, max_retries, created_at, processed_at, error_message,
-              consumer_id, lease_expires_at
+              consumer_id, lease_expires_at, trace_id, span_id, tracestate
        FROM event_outbox
        WHERE consumer_id = $1 AND status = 'processing'
        ORDER BY created_at ASC
@@ -311,6 +329,9 @@ export class OutboxRepository {
         created_at: string
         processed_at: string | null
         error_message: string | null
+        trace_id: string | null
+        span_id: string | null
+        tracestate: string | null
       }>(
         `UPDATE event_outbox
          SET status = 'processing'
@@ -322,7 +343,8 @@ export class OutboxRepository {
            FOR UPDATE SKIP LOCKED
          )
          RETURNING id, aggregate_type, aggregate_id, event_type, payload, status, 
-                   retry_count, max_retries, created_at, processed_at, error_message`,
+                   retry_count, max_retries, created_at, processed_at, error_message,
+                   trace_id, span_id, tracestate`,
         [limit]
       )
 
@@ -341,6 +363,9 @@ export class OutboxRepository {
         created_at: string
         processed_at: string | null
         error_message: string | null
+        trace_id: string | null
+        span_id: string | null
+        tracestate: string | null
       }>(
         `UPDATE event_outbox
          SET status = 'processing'
@@ -351,7 +376,8 @@ export class OutboxRepository {
            LIMIT $1
          )
          RETURNING id, aggregate_type, aggregate_id, event_type, payload, status, 
-                   retry_count, max_retries, created_at, processed_at, error_message`,
+                   retry_count, max_retries, created_at, processed_at, error_message,
+                   trace_id, span_id, tracestate`,
         [limit]
       )
 
@@ -435,10 +461,13 @@ export class OutboxRepository {
       error_message: string | null
       consumer_id: string | null
       lease_expires_at: string | null
+      trace_id: string | null
+      span_id: string | null
+      tracestate: string | null
     }>(
       `SELECT id, aggregate_type, aggregate_id, event_type, payload, status,
               retry_count, max_retries, created_at, processed_at, error_message,
-              consumer_id, lease_expires_at
+              consumer_id, lease_expires_at, trace_id, span_id, tracestate
        FROM event_outbox
        WHERE aggregate_type = $1 AND aggregate_id = $2
        ORDER BY created_at DESC

@@ -17,6 +17,9 @@ export interface OutboxEvent {
   createdAt: Date
   processedAt: Date | null
   errorMessage: string | null
+  traceId?: string | null
+  spanId?: string | null
+  tracestate?: string | null
 }
 
 export type OutboxEventStatus = 'pending' | 'processing' | 'published' | 'failed' | 'dead_letter'
@@ -52,6 +55,9 @@ export interface CreateOutboxEvent {
   eventType: string
   payload: Record<string, unknown>
   maxRetries?: number
+  traceId?: string | null
+  spanId?: string | null
+  tracestate?: string | null
 }
 
 /**
