@@ -16,6 +16,7 @@ import { SettlementReconciler } from './jobs/settlementReconciler.js'
 import { createScheduler } from './jobs/scheduler.js'
 import { keyManager } from './services/keyManager/index.js'
 import { GracefulShutdownManager } from './gracefulShutdown.js'
+import { getInvalidationBus } from './cache/index.js'
 
 // Outbox imports
 import { OutboxJob } from "./jobs/outbox.js";
@@ -32,6 +33,7 @@ let scheduler: AnalyticsRefreshScheduler | null = null;
 let outboxJob: OutboxJob | null = null;
 let shutdownManager: GracefulShutdownManager | null = null;
 let wss: ReturnType<typeof createWsSubscriptionServer> | null = null;
+let invalidationBus: ReturnType<typeof getInvalidationBus> | null = null;
 
 function installShutdownHandlers(): void {
   if (!shutdownManager) return;
@@ -135,9 +137,21 @@ if (process.env.NODE_ENV !== "test") {
       }
     }
 
+    // Start cache invalidation bus
+    try {
+      invalidationBus = getInvalidationBus();
+      await invalidationBus.start();
+      console.log("[Main] Cache invalidation bus started");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown error";
+      console.error(`Failed to start cache invalidation bus: ${message}`);
+    }
+
     shutdownManager?.setScheduler(scheduler);
     shutdownManager?.setOutboxJob(outboxJob);
     shutdownManager?.setWss(wss);
+    shutdownManager?.setInvalidationBus(invalidationBus);
   } catch (error) {
     console.error("Failed to start Credence API:", error);
     process.exit(1);

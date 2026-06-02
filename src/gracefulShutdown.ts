@@ -7,6 +7,7 @@ export interface GracefulShutdownOptions {
   server?: http.Server | null;
   outboxJob?: { stop(): Promise<void> };
   scheduler?: { stop(): void | Promise<void> };
+  invalidationBus?: { stop(): Promise<void> };
   gracePeriodMs?: number;
   forceExit?: (code: number) => void;
   logger?: (message: string) => void;
@@ -41,6 +42,10 @@ export class GracefulShutdownManager {
     this.wss = wss;
   }
 
+  setInvalidationBus(invalidationBus: { stop(): Promise<void> } | undefined): void {
+    this.options.invalidationBus = invalidationBus;
+  }
+
   async shutdown(signal: string): Promise<void> {
     if (this.shuttingDown) {
       this.options.logger?.(
@@ -71,6 +76,7 @@ export class GracefulShutdownManager {
       await stopListeners();
       await this.options.outboxJob?.stop();
       await Promise.resolve(this.options.scheduler?.stop());
+      await this.options.invalidationBus?.stop();
       this.options.logger?.("[Shutdown] Graceful shutdown complete.");
       this.clearForceExitTimer();
       this.options.forceExit?.(0);

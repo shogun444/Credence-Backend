@@ -13,7 +13,6 @@ import { noopRetryObserver, type RetryObserver } from '../observability/retryMet
 import { resolveTimeout, createTimeoutConfig } from '../lib/timeouts.js'
 import { validateConfig } from '../config/index.js'
 import { getCircuitBreaker } from './circuitBreaker.js'
-import { type RetryObserver, noopRetryObserver } from '../observability/retryMetrics.js'
 
 export type SorobanNetwork = 'testnet' | 'mainnet'
 
