@@ -30,6 +30,7 @@ export interface RetentionConfig {
     auditLogs: EntityRetentionConfig
     slashEvents: EntityRetentionConfig
     outboxEvents: EntityRetentionConfig
+    evidence: EntityRetentionConfig
   }
 }
 
@@ -41,6 +42,7 @@ export const DEFAULT_RETENTION_CONFIG: RetentionConfig = {
     auditLogs: { ttlDays: 365 },
     slashEvents: { ttlDays: 0 },
     outboxEvents: { ttlDays: 30 },
+    evidence: { ttlDays: 0 },
   },
 }
 
@@ -80,6 +82,12 @@ export function loadRetentionConfig(
         ttlDays: parseTtl(
           env.RETENTION_TTL_OUTBOX_EVENTS_DAYS,
           defaults.entities.outboxEvents.ttlDays,
+        ),
+      },
+      evidence: {
+        ttlDays: parseTtl(
+          env.RETENTION_TTL_EVIDENCE_DAYS,
+          defaults.entities.evidence.ttlDays,
         ),
       },
     },

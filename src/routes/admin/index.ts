@@ -5,6 +5,7 @@ import {
   requireAdminRole,
   UserRole,
 } from "../../middleware/auth.js";
+import erasureProofRouter from './erasureProof.js'
 import {
   buildPaginationMeta,
   parsePaginationParams,
@@ -416,6 +417,9 @@ export function createAdminRouter(): Router {
       next(error);
     }
   });
+
+  // Mount erasure-proof sub-routes
+  router.use(erasureProofRouter)
 
   return router
 }

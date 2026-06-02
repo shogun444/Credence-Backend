@@ -93,6 +93,24 @@ The `AuditChainVerifier` (`src/jobs/auditChainVerifier.ts`) runs every **15 minu
 | `row_hash_mismatch` | A row's stored `row_hash` does not match the recomputed hash (row was mutated) |
 | `deleted_row` | A gap in the `seq` sequence (row was deleted from the table) |
 
+### Evidence Erasure Proofs
+
+When evidence is crypto-shredded at end-of-retention, an `EVIDENCE_SHREDDED` audit entry is created containing:
+
+| Field | Description |
+|-------|-------------|
+| `details.proofJwt` | JWT signed by keyManager with payload `{ evidence_id, erased_at, nonce, tenant_id, actor_id }` |
+| `details.shreddedAt` | ISO timestamp of the shred operation |
+| `resourceId` | The `evidence_id` of the shredded record |
+
+Retrieve proofs via:
+
+```http
+GET /v1/admin/erasure-proof/<evidence_id>
+```
+
+The proof JWT is signed with PS256 and includes a random UUID nonce for replay protection. The signature can be independently verified against the platform's JWKS endpoint (`/.well-known/jwks.json`).
+
 ### Security: Read-Only Role
 
 **The verifier MUST run with a read-only database role** to limit blast radius. If an attacker compromises the verifier's credentials, they cannot modify the audit log.
@@ -177,7 +195,7 @@ Streams audit logs as NDJSON with PII redaction applied. Rate-limited to 10 requ
 - Admin: role and API key management, user listing
 - Disputes: submit, mark under review, resolve, dismiss
 - Governance: slash request creation and voting
-- Evidence: upload and retrieval
+- Evidence: upload, retrieval, and crypto-shred (EVIDENCE_SHREDDED)
 
 ## Migration
 
