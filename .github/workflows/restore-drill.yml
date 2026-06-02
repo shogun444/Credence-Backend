@@ -1,0 +1,46 @@
+name: Weekly Restore Drill
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # Sunday at midnight UTC
+  workflow_dispatch: {}
+
+jobs:
+  restore-drill:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: credence
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Initialize database schema
+        run: |
+          psql -h localhost -U postgres -d credence -f init-db/001_schema.sql
+        env:
+          PGPASSWORD: postgres
+
+      - name: Run restore drill
+        run: npm run drill:restore
+        env:
+          DB_URL: postgres://postgres:postgres@localhost:5432/credence
