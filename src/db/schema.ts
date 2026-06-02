@@ -109,13 +109,16 @@ const CREATE_TABLE_STATEMENTS = [
   `
   CREATE TABLE IF NOT EXISTS idempotency_keys (
     key TEXT PRIMARY KEY,
+    actor_id TEXT NOT NULL,
     request_hash TEXT NOT NULL,
     response_code INTEGER NOT NULL,
     response_body JSONB NOT NULL,
+    ttl_seconds INTEGER NOT NULL DEFAULT 86400,
     expires_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )
   `,
+  `CREATE INDEX IF NOT EXISTS idempotency_keys_expires_at_idx ON idempotency_keys (expires_at)`,
   `
   CREATE TABLE IF NOT EXISTS notification_send_attempts (
     id TEXT PRIMARY KEY,

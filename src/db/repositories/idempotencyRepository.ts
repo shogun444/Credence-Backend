@@ -2,18 +2,22 @@ import type { Queryable } from './queryable.js'
 
 export interface IdempotencyRecord {
   key: string
+  actorId: string
   requestHash: string
   responseCode: number
   responseBody: any
+  ttlSeconds: number
   expiresAt: Date
   createdAt: Date
 }
 
 export interface CreateIdempotencyInput {
   key: string
+  actorId: string
   requestHash: string
   responseCode: number
   responseBody: any
+  ttlSeconds: number
   expiresInSeconds: number
 }
 
@@ -23,7 +27,7 @@ export class IdempotencyRepository {
   async findByKey(key: string): Promise<IdempotencyRecord | null> {
     const result = await this.db.query<any>(
       `
-      SELECT key, request_hash, response_code, response_body, expires_at, created_at
+      SELECT key, actor_id, request_hash, response_code, response_body, ttl_seconds, expires_at, created_at
       FROM idempotency_keys
       WHERE key = $1 AND expires_at > NOW()
       `,
@@ -35,9 +39,11 @@ export class IdempotencyRepository {
 
     return {
       key: row.key,
+      actorId: row.actor_id,
       requestHash: row.request_hash,
       responseCode: row.response_code,
       responseBody: typeof row.response_body === 'string' ? JSON.parse(row.response_body) : row.response_body,
+      ttlSeconds: row.ttl_seconds,
       expiresAt: new Date(row.expires_at),
       createdAt: new Date(row.created_at),
     }
@@ -48,20 +54,24 @@ export class IdempotencyRepository {
 
     await this.db.query(
       `
-      INSERT INTO idempotency_keys (key, request_hash, response_code, response_body, expires_at)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO idempotency_keys (key, actor_id, request_hash, response_code, response_body, ttl_seconds, expires_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       ON CONFLICT (key) DO UPDATE SET
-        request_hash  = EXCLUDED.request_hash,
+        actor_id     = EXCLUDED.actor_id,
+        request_hash = EXCLUDED.request_hash,
         response_code = EXCLUDED.response_code,
         response_body = EXCLUDED.response_body,
-        expires_at    = EXCLUDED.expires_at,
-        created_at    = NOW()
+        ttl_seconds  = EXCLUDED.ttl_seconds,
+        expires_at   = EXCLUDED.expires_at,
+        created_at   = NOW()
       `,
       [
         input.key,
+        input.actorId,
         input.requestHash,
         input.responseCode,
         JSON.stringify(input.responseBody),
+        input.ttlSeconds,
         expiresAt,
       ]
     )
