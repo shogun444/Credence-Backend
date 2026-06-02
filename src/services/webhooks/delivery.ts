@@ -1,5 +1,5 @@
 const emitMetric = (name: string, val: number, tags: any) => console.log(`METRIC [${name}]:`, val, tags);
-import { createHmac } from 'crypto'
+import { createHmac, randomBytes } from 'crypto'
 import https from 'https'
 import {
   getBackoffDelayMs,
@@ -9,6 +9,7 @@ import {
   type RetryPolicyOverrides,
 } from '../../lib/retryPolicy.js'
 import { noopRetryObserver, type RetryObserver } from '../../observability/retryMetrics.js'
+import { webhookPayloadBytes } from '../../observability/customMetrics.js'
 import { logger } from '../../utils/logger.js'
 import type { WebhookConfig, WebhookPayload, WebhookDeliveryResult } from './types.js'
 
@@ -44,6 +45,8 @@ export interface DeliveryOptions {
   retryObserver?: RetryObserver
   /** Internal/test hook for custom https.Agent (for mTLS testing). */
   httpsAgent?: https.Agent
+  /** Payload size cap in bytes (default from config). */
+  payloadSizeCap?: number
 }
 
 const DEFAULT_WEBHOOK_RETRY = {
@@ -126,12 +129,93 @@ function validateServerCertificatePin(
 const GRACE_PERIOD_MS = 24 * 60 * 60 * 1000
 
 /**
- * Deliver webhook with retry and exponential backoff.
+ * Generate a stable chunk ID.
  */
-export async function deliverWebhook(
+function generateChunkId(): string {
+  return randomBytes(16).toString('hex')
+}
+
+/**
+ * Check if payload data is a list/array.
+ */
+function isListData(data: unknown): data is unknown[] {
+  return Array.isArray(data)
+}
+
+/**
+ * Chunk a list payload into smaller chunks that fit within the size cap.
+ */
+function chunkListPayload(
+  basePayload: Omit<WebhookPayload, 'chunkId' | 'chunkIndex' | 'totalChunks' | 'payloadTruncated' | 'paginationUrl'>,
+  sizeCap: number
+): WebhookPayload[] {
+  const chunks: WebhookPayload[] = []
+  const data = basePayload.data
+  if (!isListData(data)) return [basePayload]
+
+  const chunkId = generateChunkId()
+  let currentChunkItems: unknown[] = []
+
+  for (const item of data) {
+    const testPayload: WebhookPayload = {
+      ...basePayload,
+      data: [...currentChunkItems, item],
+      chunkId,
+      chunkIndex: chunks.length,
+      totalChunks: 0,
+    }
+    const testPayloadStr = JSON.stringify(testPayload)
+    if (Buffer.byteLength(testPayloadStr, 'utf8') <= sizeCap) {
+      currentChunkItems.push(item)
+    } else {
+      if (currentChunkItems.length > 0) {
+        chunks.push({
+          ...basePayload,
+          data: currentChunkItems,
+          chunkId,
+          chunkIndex: chunks.length,
+          totalChunks: 0,
+        })
+        currentChunkItems = [item]
+      } else {
+        // Single item too big - we'll mark as truncated later
+        chunks.push({
+          ...basePayload,
+          data: [item],
+          chunkId,
+          chunkIndex: chunks.length,
+          totalChunks: 0,
+          payloadTruncated: true,
+        })
+        currentChunkItems = []
+      }
+    }
+  }
+
+  if (currentChunkItems.length > 0) {
+    chunks.push({
+      ...basePayload,
+      data: currentChunkItems,
+      chunkId,
+      chunkIndex: chunks.length,
+      totalChunks: 0,
+    })
+  }
+
+  // Update totalChunks for all chunks
+  return chunks.map((chunk, idx) => ({
+    ...chunk,
+    totalChunks: chunks.length,
+  }))
+}
+
+/**
+ * Deliver single webhook payload (internal function).
+ */
+async function deliverSingleWebhook(
   webhook: WebhookConfig,
   payload: WebhookPayload,
-  options: DeliveryOptions = {}
+  options: DeliveryOptions,
 ): Promise<WebhookDeliveryResult> {
   const {
     maxRetries,
@@ -168,6 +252,10 @@ export async function deliverWebhook(
   })
 
   const payloadStr = JSON.stringify(payload)
+  const payloadSize = Buffer.byteLength(payloadStr, 'utf8')
+  
+  // Record payload size metric
+  webhookPayloadBytes.observe({ subscriber: webhook.id }, payloadSize)
   
   // SUPPORT DUAL SIGNATURES DURING GRACE PERIOD
   const signatures: string[] = [signPayload(payloadStr, webhook.secret)]
@@ -324,4 +412,51 @@ export async function deliverWebhook(
     responseBodySnippet: lastResponseBodySnippet,
     errorCode: lastErrorCode,
   }
+}
+
+/**
+ * Deliver webhook with retry and exponential backoff.
+ * Handles payload size limits and chunking for list payloads.
+ * Backward compatible: when no chunking, returns single WebhookDeliveryResult;
+ * otherwise returns WebhookDeliveryResult[].
+ */
+export async function deliverWebhook(
+  webhook: WebhookConfig,
+  payload: WebhookPayload,
+  options: DeliveryOptions & { returnAllChunks?: boolean } = {}
+): Promise<WebhookDeliveryResult | WebhookDeliveryResult[]> {
+  const sizeCap = options.payloadSizeCap ?? 262144 // Default 256KB if not provided
+  const payloadStr = JSON.stringify(payload)
+  const payloadSize = Buffer.byteLength(payloadStr, 'utf8')
+  let results: WebhookDeliveryResult[]
+  
+  if (payloadSize <= sizeCap) {
+    // Single payload delivery
+    const result = await deliverSingleWebhook(webhook, payload, options)
+    results = [result]
+  } else if (isListData(payload.data)) {
+    const chunks = chunkListPayload(payload, sizeCap)
+    results = []
+    for (const chunk of chunks) {
+      const result = await deliverSingleWebhook(webhook, chunk, options)
+      results.push(result)
+      if (!result.success) {
+        // Stop if any chunk fails
+        break
+      }
+    }
+  } else {
+    // Can't chunk - mark as truncated and send anyway
+    const truncatedPayload: WebhookPayload = {
+      ...payload,
+      payloadTruncated: true,
+    }
+    const result = await deliverSingleWebhook(webhook, truncatedPayload, options)
+    results = [result]
+  }
+
+  if (options.returnAllChunks) {
+    return results
+  }
+  return results.length === 1 ? results[0] : results
 }

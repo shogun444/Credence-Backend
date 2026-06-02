@@ -67,6 +67,40 @@ Access to decrypted evidence is strictly limited using Role-Based Access Control
 
 All sensitive evidence actions are written to the immutable audit stream:
 
+### Crypto-Shred for Evidence at End-of-Retention
+
+At end-of-retention (configured per entity via `RETENTION_TTL_EVIDENCE_DAYS`), evidence records are cryptographically shredded to ensure data is permanently unrecoverable.
+
+**Per-row DEK (Data Encryption Key):**
+- Each evidence record generates a random 32-byte AES-256 DEK at upload time.
+- The DEK encrypts the evidence payload (AES-256-GCM).
+- The DEK is itself encrypted ("wrapped") with the tenant-level KEK (AES-256-GCM).
+- Both the ciphertext and the wrapped DEK are stored alongside the record.
+
+**Shred process:**
+1. The `DataRetentionJob` identifies expired evidence records (based on `created_at` + TTL).
+2. Records with `legal_hold = true` are skipped.
+3. For each eligible record:
+   a. A signed proof-of-erasure JWT is created: `{ evidence_id, erased_at, nonce, tenant_id, actor_id }` — signed with the keyManager RSA key (PS256).
+   b. The wrapped DEK, IV, auth tag, and encrypted blob are all zeroized.
+   c. `shredded_at` is set to the current timestamp.
+   d. An `EVIDENCE_SHREDDED` audit log entry is written containing the signed proof JWT.
+4. The metadata row is then soft-deleted (`deleted_at` set, `encrypted_blob` cleared).
+
+**Proof-of-erasure:**
+- Each shred produces a JWT signed by the keyManager (HSM-backed in production).
+- The JWT includes a random UUID nonce, preventing replay attacks.
+- Proofs can be retrieved via `GET /v1/admin/erasure-proof/:id` for regulator response.
+- The audit log's hash chain provides additional tamper evidence.
+
+**Legal hold override:**
+- Evidence flagged with `legal_hold = true` is immune to retention-based crypto-shred.
+- The `setLegalHold(evidenceId, boolean)` method on `EvidenceStorageService` controls this flag.
+
+**Crash recovery:**
+- If a crash occurs during shred, the next retention run checks `shredded_at` on each record.
+- Already-shredded records are idempotently skipped (a new proof is still generated).
+
 ## API Key Handling (Integrations)
 
 - **Hashed storage**: API keys are never stored in plain text. Only a SHA-256 hash of the raw key is persisted.

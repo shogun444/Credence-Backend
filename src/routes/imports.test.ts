@@ -18,10 +18,12 @@
  *  - Invalid UTF-8 encoding → 400 InvalidEncoding
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import request from 'supertest'
 import express from 'express'
-import importsRouter from './imports.js'
+import importsRouter, { createImportsRouter } from './imports.js'
+import { InMemoryMappingPresetRepository } from '../services/imports/mapping.js'
+import { runWithTenant } from '../utils/tenantContext.js'
 import {
   IMPORT_PREVIEW_MAX_FILE_BYTES,
   IMPORT_PREVIEW_MAX_ROWS,
@@ -651,5 +653,281 @@ describe('previewImportFile — unit', () => {
       expect(result.summary.totalRowsScanned).toBe(0)
       expect(result.summary.validRows).toBe(0)
     }
+  })
+})
+
+// ===========================================================================
+// Mapping Presets — route-level tests
+// ===========================================================================
+
+function createPresetApp() {
+  const repo = new InMemoryMappingPresetRepository()
+  const app = express()
+  app.use(express.json())
+  app.use((_req, _res, next) => runWithTenant('default-tenant', () => next()))
+  app.use('/api/imports', createImportsRouter(repo))
+  app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    res.status(500).json({ error: 'InternalServerError', message: String(err) })
+  })
+  return { app, repo }
+}
+
+describe('POST /api/imports/presets', () => {
+  it('creates a preset and returns 201', async () => {
+    const { app } = createPresetApp()
+    const res = await request(app)
+      .post('/api/imports/presets')
+      .set('X-API-Key', ENTERPRISE_KEY)
+      .send({ name: 'Standard', columnMappings: { 'Wallet': 'address' } })
+
+    expect(res.status).toBe(201)
+    expect(res.body.preset).toBeDefined()
+    expect(res.body.preset.name).toBe('Standard')
+    expect(res.body.preset.version).toBe(1)
+    expect(res.body.preset.columnMappings).toEqual({ 'Wallet': 'address' })
+  })
+
+  it('returns 400 when name is missing', async () => {
+    const { app } = createPresetApp()
+    const res = await request(app)
+      .post('/api/imports/presets')
+      .set('X-API-Key', ENTERPRISE_KEY)
+      .send({ columnMappings: { 'W': 'address' } })
+
+    expect(res.status).toBe(400)
+    expect(res.body.code).toBe('ValidationError')
+  })
+
+  it('returns 400 when columnMappings is missing', async () => {
+    const { app } = createPresetApp()
+    const res = await request(app)
+      .post('/api/imports/presets')
+      .set('X-API-Key', ENTERPRISE_KEY)
+      .send({ name: 'Test' })
+
+    expect(res.status).toBe(400)
+    expect(res.body.code).toBe('ValidationError')
+  })
+
+  it('returns 400 when columnMappings is not an object', async () => {
+    const { app } = createPresetApp()
+    const res = await request(app)
+      .post('/api/imports/presets')
+      .set('X-API-Key', ENTERPRISE_KEY)
+      .send({ name: 'Test', columnMappings: 'not-an-object' })
+
+    expect(res.status).toBe(400)
+    expect(res.body.code).toBe('ValidationError')
+  })
+
+  it('creates version 2 when same name exists', async () => {
+    const { app } = createPresetApp()
+    await request(app)
+      .post('/api/imports/presets')
+      .set('X-API-Key', ENTERPRISE_KEY)
+      .send({ name: 'Standard', columnMappings: { 'W': 'address' } })
+
+    const res = await request(app)
+      .post('/api/imports/presets')
+      .set('X-API-Key', ENTERPRISE_KEY)
+      .send({ name: 'Standard', columnMappings: { 'W': 'address', 'E': 'email' } })
+
+    expect(res.status).toBe(201)
+    expect(res.body.preset.version).toBe(2)
+  })
+
+  it('enforces auth', async () => {
+    const { app } = createPresetApp()
+    const res = await request(app)
+      .post('/api/imports/presets')
+      .send({ name: 'Test', columnMappings: { 'W': 'address' } })
+
+    expect(res.status).toBe(401)
+  })
+})
+
+describe('GET /api/imports/presets', () => {
+  it('lists presets for the org', async () => {
+    const { app, repo } = createPresetApp()
+    await repo.create({ orgId: 'default-tenant', name: 'A', columnMappings: { 'X': 'address' } })
+    await repo.create({ orgId: 'default-tenant', name: 'B', columnMappings: { 'Y': 'email' } })
+
+    const res = await request(app)
+      .get('/api/imports/presets')
+      .set('X-API-Key', ENTERPRISE_KEY)
+
+    expect(res.status).toBe(200)
+    expect(res.body.presets).toHaveLength(2)
+  })
+
+  it('returns empty list when no presets exist', async () => {
+    const { app } = createPresetApp()
+    const res = await request(app)
+      .get('/api/imports/presets')
+      .set('X-API-Key', ENTERPRISE_KEY)
+
+    expect(res.status).toBe(200)
+    expect(res.body.presets).toEqual([])
+  })
+
+  it('enforces auth', async () => {
+    const { app } = createPresetApp()
+    const res = await request(app).get('/api/imports/presets')
+    expect(res.status).toBe(401)
+  })
+})
+
+describe('GET /api/imports/presets/:id', () => {
+  it('returns a preset by id', async () => {
+    const { app, repo } = createPresetApp()
+    const created = await repo.create({ orgId: 'default-tenant', name: 'Test', columnMappings: { 'W': 'address' } })
+
+    const res = await request(app)
+      .get(`/api/imports/presets/${created.id}`)
+      .set('X-API-Key', ENTERPRISE_KEY)
+
+    expect(res.status).toBe(200)
+    expect(res.body.preset.id).toBe(created.id)
+    expect(res.body.preset.name).toBe('Test')
+  })
+
+  it('returns 404 for nonexistent id', async () => {
+    const { app } = createPresetApp()
+    const res = await request(app)
+      .get('/api/imports/presets/nonexistent-id')
+      .set('X-API-Key', ENTERPRISE_KEY)
+
+    expect(res.status).toBe(404)
+    expect(res.body.code).toBe('PresetNotFound')
+  })
+})
+
+describe('PUT /api/imports/presets/:id', () => {
+  it('updates a preset and bumps the version', async () => {
+    const { app, repo } = createPresetApp()
+    const created = await repo.create({ orgId: 'default-tenant', name: 'Original', columnMappings: { 'W': 'address' } })
+
+    const res = await request(app)
+      .put(`/api/imports/presets/${created.id}`)
+      .set('X-API-Key', ENTERPRISE_KEY)
+      .send({ name: 'Updated' })
+
+    expect(res.status).toBe(200)
+    expect(res.body.preset.name).toBe('Updated')
+    expect(res.body.preset.version).toBe(2)
+  })
+
+  it('returns 404 for nonexistent id', async () => {
+    const { app } = createPresetApp()
+    const res = await request(app)
+      .put('/api/imports/presets/nonexistent-id')
+      .set('X-API-Key', ENTERPRISE_KEY)
+      .send({ name: 'Nope' })
+
+    expect(res.status).toBe(404)
+    expect(res.body.code).toBe('PresetNotFound')
+  })
+
+  it('returns 400 for invalid name', async () => {
+    const { app, repo } = createPresetApp()
+    const created = await repo.create({ orgId: 'default-tenant', name: 'Test', columnMappings: { 'W': 'address' } })
+
+    const res = await request(app)
+      .put(`/api/imports/presets/${created.id}`)
+      .set('X-API-Key', ENTERPRISE_KEY)
+      .send({ name: '' })
+
+    expect(res.status).toBe(400)
+    expect(res.body.code).toBe('ValidationError')
+  })
+})
+
+describe('DELETE /api/imports/presets/:id', () => {
+  it('deletes a preset and returns 204', async () => {
+    const { app, repo } = createPresetApp()
+    const created = await repo.create({ orgId: 'default-tenant', name: 'ToDelete', columnMappings: { 'W': 'address' } })
+
+    const res = await request(app)
+      .delete(`/api/imports/presets/${created.id}`)
+      .set('X-API-Key', ENTERPRISE_KEY)
+
+    expect(res.status).toBe(204)
+  })
+
+  it('returns 404 for nonexistent id', async () => {
+    const { app } = createPresetApp()
+    const res = await request(app)
+      .delete('/api/imports/presets/nonexistent-id')
+      .set('X-API-Key', ENTERPRISE_KEY)
+
+    expect(res.status).toBe(404)
+    expect(res.body.code).toBe('PresetNotFound')
+  })
+})
+
+describe('POST /api/imports/preview/:presetId', () => {
+  it('returns 404 when preset does not exist', async () => {
+    const { app } = createPresetApp()
+    const res = await request(app)
+      .post('/api/imports/preview/nonexistent')
+      .set('X-API-Key', ENTERPRISE_KEY)
+      .attach('file', Buffer.from('address\nGAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN\n', 'utf8'), {
+        filename: 'import.csv',
+        contentType: 'text/csv',
+      })
+
+    expect(res.status).toBe(404)
+    expect(res.body.code).toBe('PresetNotFound')
+  })
+
+  it('returns 200 with preset info when preset exists', async () => {
+    const { app, repo } = createPresetApp()
+    const preset = await repo.create({
+      orgId: 'default-tenant',
+      name: 'Standard',
+      columnMappings: { 'Wallet': 'address' },
+    })
+
+    const validAddress = 'GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN'
+    const res = await request(app)
+      .post(`/api/imports/preview/${preset.id}`)
+      .set('X-API-Key', ENTERPRISE_KEY)
+      .attach('file', Buffer.from(`address\n${validAddress}\n`, 'utf8'), {
+        filename: 'import.csv',
+        contentType: 'text/csv',
+      })
+
+    expect(res.status).toBe(200)
+    expect(res.body.preset).toBeDefined()
+    expect(res.body.preset.id).toBe(preset.id)
+    expect(res.body.summary).toBeDefined()
+  })
+
+  it('returns 400 when no file is attached', async () => {
+    const { app, repo } = createPresetApp()
+    const preset = await repo.create({
+      orgId: 'default-tenant',
+      name: 'Standard',
+      columnMappings: {},
+    })
+
+    const res = await request(app)
+      .post(`/api/imports/preview/${preset.id}`)
+      .set('X-API-Key', ENTERPRISE_KEY)
+
+    expect(res.status).toBe(400)
+    expect(res.body.code).toBe('MissingFile')
+  })
+
+  it('enforces auth', async () => {
+    const { app } = createPresetApp()
+    const res = await request(app)
+      .post('/api/imports/preview/some-id')
+      .attach('file', Buffer.from('a\nb', 'utf8'), {
+        filename: 'import.csv',
+        contentType: 'text/csv',
+      })
+
+    expect(res.status).toBe(401)
   })
 })

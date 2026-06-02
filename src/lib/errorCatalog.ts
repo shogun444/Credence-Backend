@@ -163,6 +163,14 @@ export const ERROR_CATALOG = freezeCatalog({
     defaultMessage: 'The request conflicts with the current resource state',
     category: 'resource',
   },
+  INSUFFICIENT_CREDITS: {
+    code: 'insufficient_credits',
+    sdkClassName: 'InsufficientCreditsCredenceError',
+    kind: 'api',
+    httpStatus: 402,
+    defaultMessage: 'Monthly credit budget exhausted',
+    category: 'business',
+  },
   INSUFFICIENT_FUNDS: {
     code: 'insufficient_funds',
     sdkClassName: 'InsufficientFundsCredenceError',

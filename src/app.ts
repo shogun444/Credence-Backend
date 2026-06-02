@@ -5,9 +5,10 @@ import { createDefaultProbes } from "./services/health/probes.js";
 import { isReady } from "./lifecycle.js";
 import trustRouter from "./routes/trust.js";
 import bulkRouter from "./routes/bulk.js";
-import importsRouter from "./routes/imports.js";
+import { createImportsRouter } from "./routes/imports.js";
 import { createAdminRouter } from "./routes/admin/index.js";
 import { createWebhookAdminRouter } from "./routes/admin/webhooks.js";
+import { createFeatureFlagAdminRouter } from "./routes/admin/featureFlags.js";
 import { createPolicyRouter } from "./routes/policy.js";
 import { createAnalyticsRouter } from "./routes/analytics.js";
 import { createPayoutsRouter } from "./routes/payouts.js";
@@ -18,6 +19,7 @@ import { pool } from "./db/pool.js";
 import { requestIdMiddleware } from "./middleware/requestId.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { createRateLimitMiddleware } from "./middleware/rateLimit.js";
+import { createCostMeterMiddleware } from "./middleware/costMeter.js";
 import { validateConfig } from "./config/index.js";
 import { createAttestationRouter } from "./routes/attestations.js";
 import { tenantContextMiddleware } from './middleware/tenantContext.js'
@@ -76,6 +78,15 @@ app.use("/api/health", createHealthRouter({ ...healthProbes, isReady }));
 
 app.use("/api", rateLimitMiddleware);
 
+try {
+  const config = validateConfig(process.env)
+  const costMeterConfig = { costWeights: config.endpointCostWeights, defaultMonthlyCredits: config.credits.defaultMonthly }
+  const costMeterMiddleware = createCostMeterMiddleware(costMeterConfig, () => pool)
+  app.use("/api", costMeterMiddleware)
+} catch {
+  // If config is invalid, cost metering is safely skipped
+}
+
 app.use("/api/trust", trustRouter);
 
 const bondService = new BondService(new BondStore());
@@ -85,10 +96,11 @@ app.use("/api/attestations", createAttestationRouter());
 
 app.use("/api/bulk", bulkRouter);
 
-app.use("/api/imports", importsRouter);
+app.use("/api/imports", createImportsRouter());
 
 app.use("/api/admin", createAdminRouter());
 app.use("/api/admin/webhooks", createWebhookAdminRouter());
+app.use("/api/admin/feature-flags", createFeatureFlagAdminRouter());
 
 app.use("/api/orgs/:orgId/policies", createPolicyRouter());
 

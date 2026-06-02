@@ -19,7 +19,9 @@ This reference is generated from `src/lib/errorCatalog.ts` and is the source of 
 | `invalid_input` | 400 |  | Invalid input |
 | `unauthorized` | 401 | authentication | Authentication is required |
 | `forbidden` | 403 | authorization | The authenticated caller is not allowed to perform this action |
+| `insufficient_credits` | 402 | business | Monthly credit budget exhausted |
 | `insufficient_funds` | 422 | business | The account has insufficient funds for this operation |
+| `invalid_dispute_transition` | 422 | business | Invalid dispute state transition |
 | `rate_limit_exceeded` | 429 | rate_limit | Rate limit exceeded |
 | `not_found` | 404 | resource | The requested resource was not found |
 | `conflict` | 409 | resource | The request conflicts with the current resource state |
@@ -42,7 +44,7 @@ This reference is generated from `src/lib/errorCatalog.ts` and is the source of 
 
 | Locale | Coverage | Notes |
 | --- | ---: | --- |
-| `en` | 23 messages | Catalog default messages for active codes. |
+| `en` | 25 messages | Catalog default messages for active codes. |
 
 ## Deprecated codes
 

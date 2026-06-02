@@ -38,6 +38,8 @@ export enum ApiScope {
   OUTBOX_REINJECT = 'outbox:reinject',
   ADMIN_READ = 'admin:read',
   ADMIN_WRITE = 'admin:write',
+  FLAGS_READ = 'flags:read',
+  FLAGS_WRITE = 'flags:write',
 
   // Legacy aliases (backward-compatible)
   PUBLIC = "public",
@@ -62,6 +64,8 @@ export const SCOPE_SETS: Record<string, ReadonlySet<ApiScope>> = {
     ApiScope.OUTBOX_REINJECT,
     ApiScope.ADMIN_READ,
     ApiScope.ADMIN_WRITE,
+    ApiScope.FLAGS_READ,
+    ApiScope.FLAGS_WRITE,
   ]),
 };
 
@@ -143,6 +147,8 @@ const API_KEYS: Record<string, ApiScope[]> = {
   'test-outbox-reinject-key': [ApiScope.OUTBOX_REINJECT],
   'test-admin-read-key': [ApiScope.ADMIN_READ],
   'test-admin-write-key': [ApiScope.ADMIN_READ, ApiScope.ADMIN_WRITE],
+  'test-flags-read-key': [ApiScope.FLAGS_READ],
+  'test-flags-write-key': [ApiScope.FLAGS_READ, ApiScope.FLAGS_WRITE],
 }
 
 /**

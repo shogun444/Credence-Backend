@@ -17,6 +17,12 @@ export const envSchema = z.object({
       .default('600') // 10 minutes
       .transform(Number)
       .pipe(z.number().int().min(60).max(86400)),
+    // Webhook payload size cap in bytes
+    WEBHOOK_PAYLOAD_SIZE_CAP: z
+      .string()
+      .default('262144') // 256 KiB
+      .transform(Number)
+      .pipe(z.number().int().min(1024).max(10485760)), // 1KB to 10MB
   // Server
   PORT: z
     .string()
@@ -249,6 +255,14 @@ export const envSchema = z.object({
       return process.env.NODE_ENV !== 'production'
     }),
 
+  // Credits / billing
+  ENDPOINT_COST_WEIGHTS: z.string().default('{"default":1,"/bulk/verify":10,"/reports":5}'),
+  DEFAULT_MONTHLY_CREDITS: z
+    .string()
+    .default('10000')
+    .transform(Number)
+    .pipe(z.number().int().min(0)),
+
   // Reputation scoring model
   REPUTATION_MODEL_VERSION: z.string().default('1.0.0'),
   REPUTATION_BOND_SCORE_MAX: z
@@ -444,6 +458,22 @@ export interface Config {
     failureThreshold: number
     cooldownPeriodMs: number
   }
+  endpointCostWeights: Record<string, number>
+  credits: {
+    defaultMonthly: number
+  }
+}
+
+function parseCostWeights(raw: string): Record<string, number> {
+  try {
+    const parsed = JSON.parse(raw)
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+      return parsed as Record<string, number>
+    }
+    return { default: 1 }
+  } catch {
+    return { default: 1 }
+  }
 }
 
 function hasRetryOverride(overrides: RetryPolicyOverrides): boolean {
@@ -591,6 +621,10 @@ function mapEnvToConfig(env: Env): Config {
     sorobanCircuitBreaker: {
       failureThreshold: env.SOROBAN_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
       cooldownPeriodMs: env.SOROBAN_CIRCUIT_BREAKER_COOLDOWN_MS,
+    },
+    endpointCostWeights: parseCostWeights(env.ENDPOINT_COST_WEIGHTS),
+    credits: {
+      defaultMonthly: env.DEFAULT_MONTHLY_CREDITS,
     },
   }
 

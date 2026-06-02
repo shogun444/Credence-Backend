@@ -54,6 +54,16 @@ export interface WebhookPayload {
   timestamp: string
   /** Event data (identity state). */
   data: Record<string, unknown>
+  /** Chunk ID for chunked payloads (optional). */
+  chunkId?: string
+  /** Index of this chunk (0-based). */
+  chunkIndex?: number
+  /** Total number of chunks. */
+  totalChunks?: number
+  /** Flag indicating payload was truncated. */
+  payloadTruncated?: boolean
+  /** URL to fetch remaining data (optional). */
+  paginationUrl?: string
 }
 
 /**
