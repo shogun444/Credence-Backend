@@ -625,6 +625,67 @@ components:
       format: null
       minLength: 1
       maxLength: null
+    trustExplainQuerySchema:
+      def:
+        type: object
+        shape:
+          snapshotId:
+            def:
+              type: pipe
+              in:
+                def:
+                  type: transform
+                type: transform
+              out:
+                def:
+                  type: number
+                  checks:
+                    - def:
+                        type: number
+                        check: number_format
+                        abort: false
+                        format: safeint
+                      type: number
+                      minValue: -9007199254740991
+                      maxValue: 9007199254740991
+                      isInt: true
+                      isFinite: true
+                      format: safeint
+                    - {}
+                type: number
+                minValue: 0
+                maxValue: 9007199254740991
+                isInt: true
+                isFinite: true
+                format: safeint
+            type: pipe
+            in:
+              def:
+                type: transform
+              type: transform
+            out:
+              def:
+                type: number
+                checks:
+                  - def:
+                      type: number
+                      check: number_format
+                      abort: false
+                      format: safeint
+                    type: number
+                    minValue: -9007199254740991
+                    maxValue: 9007199254740991
+                    isInt: true
+                    isFinite: true
+                    format: safeint
+                  - {}
+              type: number
+              minValue: 0
+              maxValue: 9007199254740991
+              isInt: true
+              isFinite: true
+              format: safeint
+      type: object
     trustPathParamsSchema:
       def:
         type: object

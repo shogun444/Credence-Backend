@@ -194,18 +194,17 @@ groups:
           description: >-
             Worker pool has {{ $value }} jobs queued waiting for a
             connection for >5 minutes.
+          runbook_url: "https://docs.credence.org/runbooks/database#worker-pool-saturation"
 
       # ─── Audit Log Tamper Detection ────────────────────────────────
-      # Critical: any non-zero violation count means the audit chain
-      # has been tampered with (row mutated, deleted, or re-ordered).
-      # Pages on-call immediately.
       - alert: AuditChainIntegrityViolation
         expr: |
           audit_chain_integrity_violation_total{job="credence-backend"} > 0
         for: 0m
         labels:
-          severity: critical
+          severity: SEV1
           service: credence-backend
+          team: platform  # Change from 'security' to 'platform'
         annotations:
           summary: "Audit log chain integrity violation detected"
           description: >-
@@ -213,6 +212,7 @@ groups:
             This indicates potential tampering with the audit_logs table
             (rows mutated, deleted, or re-ordered). Investigate immediately.
             Runbook: docs/audit-log.md#tamper-detection
+          runbook_url: "https://docs.credence.org/runbooks/security#audit-chain-violation"
 
       # Warning: verifier hasn't run in 30 minutes (should run every 15)
       - alert: AuditChainVerifierStale
@@ -220,10 +220,12 @@ groups:
           (time() - audit_chain_verifier_last_run_timestamp{job="credence-backend"}) > 1800
         for: 5m
         labels:
-          severity: warning
+          severity: SEV2  # Changed from 'warning' to SEV2
           service: credence-backend
+          team: platform  # Added team label
         annotations:
           summary: "Audit chain verifier has not run recently"
           description: >-
             The audit chain verifier has not completed a run in over 30 minutes.
             It is scheduled to run every 15 minutes. Check the job scheduler.
+          runbook_url: "https://docs.credence.org/runbooks/monitoring#verifier-stale"  # Added

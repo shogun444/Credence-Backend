@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import request from 'supertest'
 import { createTestDatabase, createTestCache, type TestDatabase, type TestCache } from './testDatabase.js'
 import { runMigration } from '../../src/migrations/runner.js'
+import { setTenantId } from '../../src/utils/tenantContext.js'
 
 // We need to define these variables here so they are available in the test scope
 let db: TestDatabase
@@ -125,6 +126,9 @@ import app from '../../src/app.js'
 
 describe('E2E State Sync Integration: Horizon -> DB -> Trust -> Cache -> API', () => {
   beforeAll(async () => {
+    // Set tenant context for tests
+    setTenantId('test-tenant')
+    
     // 1. Start Postgres and Redis containers (or fallbacks)
     db = await createTestDatabase()
     cache = await createTestCache()
@@ -138,8 +142,8 @@ describe('E2E State Sync Integration: Horizon -> DB -> Trust -> Cache -> API', (
 
     // 3. Run migrations on the test database
     if (db.connectionString.startsWith('pg-mem://')) {
-      await db.pool.query('CREATE TABLE identities (id SERIAL PRIMARY KEY, address VARCHAR(64) UNIQUE, bonded_amount VARCHAR(78) DEFAULT \'0\', bond_start TIMESTAMP, bond_duration INTEGER, active BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)')
-      await db.pool.query('CREATE TABLE attestations (id SERIAL PRIMARY KEY, bond_id INTEGER, attester_address VARCHAR(64), subject_address VARCHAR(64), score INTEGER, note TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)')
+      await db.pool.query('CREATE TABLE IF NOT EXISTS identities (id SERIAL PRIMARY KEY, address VARCHAR(64) UNIQUE, tenant_id VARCHAR(64), bonded_amount VARCHAR(78) DEFAULT \'0\', bond_start TIMESTAMP, bond_duration INTEGER, active BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)')
+      await db.pool.query('CREATE TABLE IF NOT EXISTS attestations (id SERIAL PRIMARY KEY, bond_id INTEGER, attester_address VARCHAR(64), subject_address VARCHAR(64), score INTEGER, note TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, tenant_id VARCHAR(64))')
     } else {
       const migrationResult = await runMigration({
         direction: 'up',
@@ -161,6 +165,8 @@ describe('E2E State Sync Integration: Horizon -> DB -> Trust -> Cache -> API', (
   }, 60000)
 
   afterAll(async () => {
+    // Clean up tenant context
+    setTenantId(null)
     if (db) await db.close()
     if (cache) await cache.close()
   })
@@ -195,6 +201,7 @@ describe('E2E State Sync Integration: Horizon -> DB -> Trust -> Cache -> API', (
     const response = await request(app)
       .get(`/api/trust/${address}`)
       .set('x-api-key', 'test-api-key')
+      .set('x-tenant-id', 'test-tenant') // Add tenant header
     
     expect(response.status).toBe(200)
     expect(response.body.address).toBe(address)
@@ -214,24 +221,30 @@ describe('E2E State Sync Integration: Horizon -> DB -> Trust -> Cache -> API', (
     const subject = 'GD7XW6Q6V6O6V6O6V6O6V6O6V6O6V6O6V6O6V6O6V6O6V6O6V6O6V6O2'
     const verifier = 'GD7XW6Q6V6O6V6O6V6O6V6O6V6O6V6O6V6O6V6O6V6O6V6O6V6O6V6O3'
 
-    // 1. Pre-seed identity
-    await pool.query('INSERT INTO identities (address) VALUES ($1) ON CONFLICT DO NOTHING', [subject])
+    // 1. Pre-seed identity with tenant_id
+    await pool.query('INSERT INTO identities (address, tenant_id) VALUES ($1, $2) ON CONFLICT (address) DO NOTHING', [subject, 'test-tenant'])
 
     // 2. Manually insert attestation (simulating what the listener does)
     await pool.query(
-      'INSERT INTO attestations (bond_id, attester_address, subject_address, score, note) VALUES ($1, $2, $3, $4, $5)',
-      [1, verifier, subject, 10, 'Strong trust']
+      'INSERT INTO attestations (bond_id, attester_address, subject_address, score, note, tenant_id) VALUES ($1, $2, $3, $4, $5, $6)',
+      [1, verifier, subject, 10, 'Strong trust', 'test-tenant']
     )
     
     // Invalidate cache manually as we are bypassing the listener for simplicity in this fallback environment
     await invalidateTrustScoreCache(subject)
 
     // 3. Verify score via API
-    const response = await request(app)
-      .get(`/api/trust/${subject}`)
-      .set('x-api-key', 'test-api-key')
-    
-    expect(response.status).toBe(200)
+     const response = await request(app)
+    .get(`/api/trust/${address}`)
+    .set('x-api-key', 'test-api-key')
+    .set('x-tenant-id', 'test-tenant')
+  
+  // Add debug logging
+  if (response.status !== 200) {
+    console.error('Error response body:', response.body)
+  }
+  
+  expect(response.status).toBe(200)
     expect(response.body.score).toBe(6) // (1/5) * 30
 
     // 4. Verify Cache status
@@ -241,7 +254,10 @@ describe('E2E State Sync Integration: Horizon -> DB -> Trust -> Cache -> API', (
   })
 
   it('returns 404 for missing identity', async () => {
-    const response = await request(app).get('/api/trust/GD7XW6Q6V6O6V6O6V6O6V6O6V6O6V6O6V6O6V6O6V6O6V6O6V6O6V6A7')
+    const response = await request(app)
+      .get('/api/trust/GD7XW6Q6V6O6V6O6V6O6V6O6V6O6V6O6V6O6V6O6V6O6V6O6V6O6V6A7')
+      .set('x-tenant-id', 'test-tenant') // Add tenant header
+    
     expect(response.status).toBe(404)
   })
 })

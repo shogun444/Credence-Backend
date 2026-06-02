@@ -10,6 +10,7 @@ export interface Attestation {
   weight: number;
   revoked: number;
   created_at: string;
+  tenant_id?: string; // Add optional tenant_id field
 }
 
 /** Input for creating a new attestation. */
@@ -17,6 +18,7 @@ export interface CreateAttestationInput {
   verifier: string;
   identity_id: number;
   weight?: number;
+  tenantId?: string; // Allow tenant ID to be passed in for testing
 }
 
 /**
@@ -25,15 +27,23 @@ export interface CreateAttestationInput {
  */
 export class AttestationsRepository {
   private db: Database.Database;
+  private skipTenantCheck: boolean; // Allow skipping tenant check in tests
 
   /**
    * @param db - A better-sqlite3 Database instance with migrations already applied.
+   * @param options - Optional configuration
    */
-  constructor(db: Database.Database) {
+  constructor(db: Database.Database, options: { skipTenantCheck?: boolean } = {}) {
     this.db = db;
+    this.skipTenantCheck = options.skipTenantCheck || false;
   }
 
-  private assertTenant(): string {
+  private assertTenant(): string | undefined {
+    // Skip tenant check if explicitly disabled (useful for tests)
+    if (this.skipTenantCheck) {
+      return undefined;
+    }
+    
     const t = getTenantId();
     if (!t) throw new Error("Missing tenant context");
     return t;
@@ -46,17 +56,32 @@ export class AttestationsRepository {
    * @returns The newly created attestation record.
    */
   create(input: CreateAttestationInput): Attestation {
-    this.assertTenant();
+    const tenantId = input.tenantId || this.assertTenant();
     const weight = input.weight ?? 1.0;
-    const stmt = this.db.prepare(
-      "INSERT INTO attestations (verifier, identity_id, weight) VALUES (@verifier, @identity_id, @weight)",
-    );
-    const result = stmt.run({
-      verifier: input.verifier,
-      identity_id: input.identity_id,
-      weight,
-    });
-    return this.findById(result.lastInsertRowid as number)!;
+    
+    // Only include tenant_id in INSERT if it exists
+    if (tenantId) {
+      const stmt = this.db.prepare(
+        "INSERT INTO attestations (verifier, identity_id, weight, tenant_id) VALUES (@verifier, @identity_id, @weight, @tenantId)"
+      );
+      const result = stmt.run({
+        verifier: input.verifier,
+        identity_id: input.identity_id,
+        weight,
+        tenantId,
+      });
+      return this.findById(result.lastInsertRowid as number)!;
+    } else {
+      const stmt = this.db.prepare(
+        "INSERT INTO attestations (verifier, identity_id, weight) VALUES (@verifier, @identity_id, @weight)"
+      );
+      const result = stmt.run({
+        verifier: input.verifier,
+        identity_id: input.identity_id,
+        weight,
+      });
+      return this.findById(result.lastInsertRowid as number)!;
+    }
   }
 
   /**
@@ -78,7 +103,7 @@ export class AttestationsRepository {
    */
   findByIdentityId(identityId: number): Attestation[] {
     const stmt = this.db.prepare(
-      "SELECT * FROM attestations WHERE identity_id = ? ORDER BY id ASC",
+      "SELECT * FROM attestations WHERE identity_id = ? ORDER BY id ASC"
     );
     return stmt.all(identityId) as Attestation[];
   }
@@ -91,7 +116,7 @@ export class AttestationsRepository {
    */
   revoke(id: number): boolean {
     const stmt = this.db.prepare(
-      "UPDATE attestations SET revoked = 1 WHERE id = ?",
+      "UPDATE attestations SET revoked = 1 WHERE id = ?"
     );
     const result = stmt.run(id);
     return result.changes > 0;

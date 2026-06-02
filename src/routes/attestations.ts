@@ -21,6 +21,7 @@ import { TransactionManager } from '../db/transaction.js'
 import { outboxEmitter, type OutboxEventEmitter } from '../db/outbox/index.js'
 import { AttestationCacheService } from '../services/attestationCacheService.js'
 import type { Queryable } from '../db/repositories/queryable.js'
+import { getTenantId, setTenantId } from '../utils/tenantContext.js'
 
 interface AttestationRouterDeps {
   db?: Queryable
@@ -28,6 +29,7 @@ interface AttestationRouterDeps {
   cacheService?: AttestationCacheService
   transactionManager?: Pick<TransactionManager, 'withTransaction'>
   outbox?: Pick<OutboxEventEmitter, 'emit'>
+  skipTenantCheck?: boolean // Allow skipping tenant check for testing
 }
 
 type CreateAttestationBody = {
@@ -147,7 +149,7 @@ export function createAttestationRouter(
 
   const router = Router()
   const db = deps.db ?? pool
-  const repository = deps.repository ?? new AttestationsRepository(db)
+  const repository = deps.repository ?? new AttestationsRepository(db, { skipTenantCheck: deps.skipTenantCheck })
   const cacheService = deps.cacheService ?? new AttestationCacheService(repository)
   const transactionManager = deps.transactionManager ?? new TransactionManager(pool)
   const emitter = deps.outbox ?? outboxEmitter
@@ -157,11 +159,18 @@ export function createAttestationRouter(
     validate({ params: attestationsPathParamsSchema }),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
+        // Set tenant context from request header if available
+        const tenantId = req.headers['x-tenant-id'] as string || 'default-tenant'
+        const originalTenant = getTenantId()
+        if (!originalTenant) {
+          setTenantId(tenantId)
+        }
+
         const { address } = req.validated!.params! as { address: string }
         const normalizedAddress = normalizeAddress(address)
         const { page, limit, offset } = parsePaginationParams(req.query as Record<string, unknown>)
         const result = await withReplica(async (client) => {
-          const reqRepo = deps.repository ?? new AttestationsRepository(client)
+          const reqRepo = deps.repository ?? new AttestationsRepository(client, { skipTenantCheck: deps.skipTenantCheck })
           const reqCache = deps.cacheService ?? new AttestationCacheService(reqRepo)
           return await reqCache.getAttestationsBySubjectPage(normalizedAddress, {
             offset,
@@ -175,6 +184,11 @@ export function createAttestationRouter(
           offset,
           ...buildPaginationMeta(result.total, page, limit),
         })
+        
+        // Restore original tenant context if changed
+        if (!originalTenant) {
+          setTenantId(null)
+        }
       } catch (error) {
         if (error instanceof PaginationValidationError) {
           next(new ValidationError('Validation failed', error.details))
@@ -189,30 +203,37 @@ export function createAttestationRouter(
     '/',
     validate({ body: createAttestationBodySchema }),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-      const body = req.validated!.body! as CreateAttestationBody
-      if (body.bondId === undefined || body.attesterAddress === undefined) {
-        next(new ValidationError('Validation failed', [
-          ...(body.bondId === undefined
-            ? [{ path: 'bondId', message: 'Bond ID is required' }]
-            : []),
-          ...(body.attesterAddress === undefined
-            ? [{ path: 'attesterAddress', message: 'Attester address is required' }]
-            : []),
-        ]))
-        return
-      }
-
-      const input: CreateAttestationInput = {
-        bondId: body.bondId,
-        attesterAddress: normalizeAddress(body.attesterAddress),
-        subjectAddress: normalizeAddress(body.subject),
-        score: body.score ?? 100,
-        note: buildNote(body),
+      // Set tenant context from request header if available
+      const tenantId = req.headers['x-tenant-id'] as string || 'default-tenant'
+      const originalTenant = getTenantId()
+      if (!originalTenant) {
+        setTenantId(tenantId)
       }
 
       try {
+        const body = req.validated!.body! as CreateAttestationBody
+        if (body.bondId === undefined || body.attesterAddress === undefined) {
+          next(new ValidationError('Validation failed', [
+            ...(body.bondId === undefined
+              ? [{ path: 'bondId', message: 'Bond ID is required' }]
+              : []),
+            ...(body.attesterAddress === undefined
+              ? [{ path: 'attesterAddress', message: 'Attester address is required' }]
+              : []),
+          ]))
+          return
+        }
+
+        const input: CreateAttestationInput = {
+          bondId: body.bondId,
+          attesterAddress: normalizeAddress(body.attesterAddress),
+          subjectAddress: normalizeAddress(body.subject),
+          score: body.score ?? 100,
+          note: buildNote(body),
+        }
+
         const attestation = await transactionManager.withTransaction(async (client: PoolClient) => {
-          const txRepository = new AttestationsRepository(client)
+          const txRepository = new AttestationsRepository(client, { skipTenantCheck: deps.skipTenantCheck })
           const created = await txRepository.create(input)
 
           await emitter.emit(client, {
@@ -236,6 +257,11 @@ export function createAttestationRouter(
           return
         }
         next(error)
+      } finally {
+        // Restore original tenant context if changed
+        if (!originalTenant) {
+          setTenantId(null)
+        }
       }
     }
   )

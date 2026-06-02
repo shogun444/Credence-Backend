@@ -20,6 +20,7 @@ import { errorHandler } from "./middleware/errorHandler.js";
 import { createRateLimitMiddleware } from "./middleware/rateLimit.js";
 import { validateConfig } from "./config/index.js";
 import { createAttestationRouter } from "./routes/attestations.js";
+import { tenantContextMiddleware } from './middleware/tenantContext.js'
 import {
   compressionMiddleware,
   compressionMetricsMiddleware,
@@ -66,6 +67,7 @@ app.use(metricsMiddleware);
 app.use(compressionMetricsMiddleware);
 app.use(compressionMiddleware);
 app.use(express.json());
+app.use(tenantContextMiddleware);
 
 app.use("/.well-known/jwks.json", createJwksRouter());
 

@@ -1,25 +1,20 @@
-# Gitleaks configuration
-# Detect Stellar secret keys (starting with S), JWT tokens, and PostgreSQL URIs
-# Allowlist patterns for test fixtures and known benign files
+title = "gitleaks config"
 
 [allowlist]
-# Paths to ignore (e.g., test fixtures)
-paths = ["**/test/**", "**/fixtures/**"]
-# Regex allowlist (e.g., dummy keys)
-regexes = ["FAKE_SECRET=.+", "dummyjwt"]
+paths = [".*/test/.*", ".*/fixtures/.*"]
+regexes = ["FAKE_SECRET", "dummyjwt"]
 
 [[rules]]
+id = "stellar-key"
 description = "Stellar secret key"
-regex = "S[0-9A-Z]{55}"
-# entropy not required
+regex = 'S[0-9A-Z]{55}'
 
 [[rules]]
+id = "jwt-token"
 description = "JWT token"
-regex = "[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
-# high entropy
-entropy = 3.0
+regex = '(eyJ[a-zA-Z0-9_-]+)\.([a-zA-Z0-9_-]+)\.([a-zA-Z0-9_-]+)'
 
 [[rules]]
+id = "postgres-uri"
 description = "Postgres URI"
-regex = "postgres(?:ql)?://[^"]+"
-entropy = 3.0
+regex = 'postgres://'

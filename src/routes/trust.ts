@@ -1,4 +1,4 @@
-import { Router, type Request, type Response } from 'express'
+import { Router, type Request, type Response, type NextFunction } from 'express'
 import { getTrustScore } from '../services/reputationService.js'
 import { PgTrustIdentityRepository } from '../db/repositories/trustIdentityRepository.js'
 import { pool, withReplica } from '../db/pool.js'
@@ -13,7 +13,7 @@ router.get(
   '/:address',
   validate({ params: trustPathParamsSchema }),
   apiKeyMiddleware,
-  async (req: Request, res: Response, next) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { address } = req.validated!.params! as { address: string }
 
@@ -30,7 +30,7 @@ router.get(
     } catch (error) {
       next(error)
     }
-  },
-);
+  }
+)
 
 export default router

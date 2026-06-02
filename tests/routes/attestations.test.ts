@@ -4,6 +4,7 @@ import request from 'supertest'
 import { createAttestationRouter } from '../../src/routes/attestations.js'
 import { errorHandler } from '../../src/middleware/errorHandler.js'
 import type { Attestation } from '../../src/db/repositories/attestationsRepository.js'
+import { setTenantId } from '../../src/utils/tenantContext.js'
 
 const SUBJECT = '0x1111111111111111111111111111111111111111'
 const ATTESTER = '0x2222222222222222222222222222222222222222'
@@ -33,6 +34,9 @@ describe('attestation routes', () => {
   }
 
   beforeEach(() => {
+    // Set tenant context for tests
+    setTenantId('test-tenant')
+    
     cacheService = {
       getAttestationsBySubjectPage: vi.fn(),
       invalidateForAttestation: vi.fn(),
@@ -52,6 +56,11 @@ describe('attestation routes', () => {
       outbox: outbox as any,
     }))
     app.use(errorHandler)
+  })
+
+  afterEach(() => {
+    // Clean up tenant context
+    setTenantId(null)
   })
 
   describe('GET /api/attestations/:address', () => {
@@ -123,52 +132,53 @@ describe('attestation routes', () => {
   })
 
   describe('POST /api/attestations', () => {
-    it('persists an attestation, emits an outbox event, and invalidates cache', async () => {
-      const created = makeAttestation(7)
-      transactionManager.withTransaction.mockImplementationOnce(async (fn) => {
-        const client = {
-          query: vi.fn().mockResolvedValue({ rows: [{
-            id: created.id,
-            bond_id: created.bondId,
-            attester_address: created.attesterAddress,
-            subject_address: created.subjectAddress,
-            score: created.score,
-            note: created.note,
-            created_at: created.createdAt,
-          }] }),
-        }
-        return fn(client)
-      })
+  it('persists an attestation, emits an outbox event, and invalidates cache', async () => {
+    const created = makeAttestation(7)
+    transactionManager.withTransaction.mockImplementationOnce(async (fn) => {
+      const client = {
+        query: vi.fn().mockResolvedValue({ rows: [{
+          id: created.id,
+          bond_id: created.bondId,
+          attester_address: created.attesterAddress,
+          subject_address: created.subjectAddress,
+          score: created.score,
+          note: created.note,
+          created_at: created.createdAt,
+        }] }),
+      }
+      return fn(client)
+    })
 
-      const res = await request(app)
-        .post('/api/attestations')
-        .send({
-          bondId: 10,
-          attesterAddress: ATTESTER.toUpperCase().replace('X', 'x'),
-          subject: SUBJECT,
-          key: 'kyc',
-          value: 'verified',
-          score: 90,
-        })
-        .expect(201)
-
-      expect(res.body).toMatchObject({
-        id: 7,
+    const res = await request(app)
+      .post('/api/attestations')
+      .set('x-tenant-id', 'test-tenant')
+      .send({
         bondId: 10,
-        attesterAddress: ATTESTER,
-        subjectAddress: SUBJECT,
+        attesterAddress: ATTESTER.toUpperCase().replace('X', 'x'),
+        subject: SUBJECT,
+        key: 'kyc',
+        value: 'verified',
         score: 90,
       })
-      expect(outbox.emit).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-        aggregateType: 'attestation',
-        aggregateId: '7',
-        eventType: 'attestation.created',
-      }))
-      expect(cacheService.invalidateForAttestation).toHaveBeenCalledWith(expect.objectContaining({
-        id: 7,
-        subjectAddress: SUBJECT,
-      }))
+      .expect(201)
+
+    expect(res.body).toMatchObject({
+      id: 7,
+      bondId: 10,
+      attesterAddress: ATTESTER,
+      subjectAddress: SUBJECT,
+      score: 90,
     })
+    expect(outbox.emit).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      aggregateType: 'attestation',
+      aggregateId: '7',
+      eventType: 'attestation.created',
+    }))
+    expect(cacheService.invalidateForAttestation).toHaveBeenCalledWith(expect.objectContaining({
+      id: 7,
+      subjectAddress: SUBJECT,
+    }))
+  })
 
     it('rejects duplicate attestations', async () => {
       transactionManager.withTransaction.mockRejectedValueOnce({ code: '23505' })

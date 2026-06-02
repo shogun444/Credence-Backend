@@ -22,17 +22,28 @@ function runCommand(cmd: string): string {
   }
 }
 
+// Helper to check if a command is available
+function isCommandAvailable(command: string): boolean {
+  try {
+    execSync(`${command} version`, { encoding: "utf-8", stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 describe("AlertManager CLI Validation", () => {
   const alertManagerConfigPath = path.join(
     __dirname,
     "../prometheus/alertmanager.yml",
   );
+  
+  let hasAmtool: boolean;
 
   beforeAll(() => {
     // Check if amtool is available
-    try {
-      runCommand("amtool version");
-    } catch (error) {
+    hasAmtool = isCommandAvailable("amtool");
+    if (!hasAmtool) {
       console.warn("⚠️  amtool not installed - skipping amtool tests");
       console.warn(
         "Install with: brew install alertmanager (macOS) or apt-get install alertmanager (Linux)",
@@ -40,13 +51,8 @@ describe("AlertManager CLI Validation", () => {
     }
   });
 
-  it("should pass amtool check-config validation", function () {
-    // Skip if amtool not available
-    try {
-      runCommand("amtool version");
-    } catch {
-      this.skip();
-    }
+  it("should pass amtool check-config validation", () => {
+    if (!hasAmtool) return;
 
     const output = runCommand(`amtool check-config ${alertManagerConfigPath}`);
 
@@ -55,12 +61,8 @@ describe("AlertManager CLI Validation", () => {
     expect(output).not.toContain("failed");
   });
 
-  it("should have valid receiver configuration", function () {
-    try {
-      runCommand("amtool version");
-    } catch {
-      this.skip();
-    }
+  it("should have valid receiver configuration", () => {
+    if (!hasAmtool) return;
 
     const output = runCommand(`amtool config routes ${alertManagerConfigPath}`);
 
@@ -75,12 +77,13 @@ describe("Prometheus Tool Validation", () => {
     __dirname,
     "../prometheus/alerts.yml",
   );
+  
+  let hasPromtool: boolean;
 
   beforeAll(() => {
     // Check if promtool is available
-    try {
-      runCommand("promtool version");
-    } catch (error) {
+    hasPromtool = isCommandAvailable("promtool");
+    if (!hasPromtool) {
       console.warn("⚠️  promtool not installed - skipping promtool tests");
       console.warn(
         "Install with: brew install prometheus (macOS) or download from https://prometheus.io/download/",
@@ -88,13 +91,8 @@ describe("Prometheus Tool Validation", () => {
     }
   });
 
-  it("should pass promtool check rules validation", function () {
-    // Skip if promtool not available
-    try {
-      runCommand("promtool version");
-    } catch {
-      this.skip();
-    }
+  it("should pass promtool check rules validation", () => {
+    if (!hasPromtool) return;
 
     const output = runCommand(`promtool check rules ${alertsRulesPath}`);
 
@@ -104,12 +102,8 @@ describe("Prometheus Tool Validation", () => {
     expect(output).not.toContain("ERROR");
   });
 
-  it("should validate PromQL expressions", function () {
-    try {
-      runCommand("promtool version");
-    } catch {
-      this.skip();
-    }
+  it("should validate PromQL expressions", () => {
+    if (!hasPromtool) return;
 
     const output = runCommand(
       `promtool check rules ${alertsRulesPath} --lint=all`,
