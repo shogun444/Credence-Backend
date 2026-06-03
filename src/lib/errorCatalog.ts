@@ -163,6 +163,14 @@ export const ERROR_CATALOG = freezeCatalog({
     defaultMessage: 'The request conflicts with the current resource state',
     category: 'resource',
   },
+  IDEMPOTENCY_KEY_MISMATCH: {
+    code: 'idempotency_key_mismatch',
+    sdkClassName: 'IdempotencyKeyMismatchCredenceError',
+    kind: 'api',
+    httpStatus: 409,
+    defaultMessage: 'Idempotency key is already bound to a different actor or payload',
+    category: 'business',
+  },
   INSUFFICIENT_CREDITS: {
     code: 'insufficient_credits',
     sdkClassName: 'InsufficientCreditsCredenceError',
