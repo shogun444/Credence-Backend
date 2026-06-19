@@ -4,6 +4,7 @@ import {
   buildPaginationMeta,
   parsePaginationParams,
   PaginationValidationError,
+  encodeCursor,
 } from '../lib/pagination.js'
 import { ValidationError, ErrorCode, NotFoundError } from '../lib/errors.js'
 import { validate } from '../middleware/validate.js'
@@ -168,21 +169,34 @@ export function createAttestationRouter(
 
         const { address } = req.validated!.params! as { address: string }
         const normalizedAddress = normalizeAddress(address)
-        const { page, limit, offset } = parsePaginationParams(req.query as Record<string, unknown>)
+        
+        // Parse cursor pagination parameters
+        const { limit, decodedCursor } = parsePaginationParams(req.query as Record<string, unknown>)
+        
         const result = await withReplica(async (client) => {
           const reqRepo = deps.repository ?? new AttestationsRepository(client, { skipTenantCheck: deps.skipTenantCheck })
           const reqCache = deps.cacheService ?? new AttestationCacheService(reqRepo)
-          return await reqCache.getAttestationsBySubjectPage(normalizedAddress, {
-            offset,
+          return await reqCache.getAttestationsBySubjectPaginated(normalizedAddress, {
             limit,
+            cursor: decodedCursor,
           })
         })
 
+        // Generate next cursor if there are more results
+        let nextCursor: string | null = null
+        if (result.hasMore && result.attestations.length > 0) {
+          const lastAttestation = result.attestations[result.attestations.length - 1]
+          nextCursor = encodeCursor(lastAttestation.createdAt.toISOString(), String(lastAttestation.id))
+        }
+
         res.json({
           address: normalizedAddress,
-          attestations: result.attestations.map(serializeAttestation),
-          offset,
-          ...buildPaginationMeta(result.total, page, limit),
+          data: result.attestations.map(serializeAttestation),
+          page: {
+            nextCursor,
+            hasMore: result.hasMore,
+            limit,
+          },
         })
         
         // Restore original tenant context if changed

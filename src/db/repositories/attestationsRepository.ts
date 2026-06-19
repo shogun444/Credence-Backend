@@ -29,6 +29,16 @@ export interface AttestationPage {
   total: number;
 }
 
+export interface CursorPaginationOptions {
+  limit: number;
+  cursor?: { t: string; i: string };
+}
+
+export interface AttestationCursorPage {
+  attestations: Attestation[];
+  hasMore: boolean;
+}
+
 type AttestationRow = {
   id: string | number;
   bond_id: string | number;
@@ -188,5 +198,49 @@ export class AttestationsRepository {
     );
 
     return (result.rowCount ?? 0) > 0;
+  }
+
+  /**
+   * Fetches attestations for a subject using cursor-based pagination.
+   * Uses stable sort (created_at DESC, id DESC) to prevent duplicate/skipped rows on concurrent inserts.
+   * @param subjectAddress The subject address
+   * @param options Pagination options with cursor
+   * @returns Attestations and hasMore flag
+   */
+  async listBySubjectPaginated(
+    subjectAddress: string,
+    options: CursorPaginationOptions,
+  ): Promise<AttestationCursorPage> {
+    this.assertTenant();
+    
+    // Fetch limit + 1 to determine if there are more results
+    const fetchLimit = options.limit + 1;
+    const values: any[] = [subjectAddress, fetchLimit];
+    let whereClause = "WHERE subject_address = $1";
+    let paramIndex = 3;
+
+    if (options.cursor) {
+      whereClause += ` AND (created_at, id) < ($${paramIndex}, $${paramIndex + 1})`;
+      values.push(options.cursor.t, options.cursor.i);
+    }
+
+    const result = await this.db.query<AttestationRow>(
+      `
+      SELECT id, bond_id, attester_address, subject_address, score, note, created_at
+      FROM attestations
+      ${whereClause}
+      ORDER BY created_at DESC, id DESC
+      LIMIT $2
+      `,
+      values,
+    );
+
+    const hasMore = result.rows.length > options.limit;
+    const attestations = result.rows.slice(0, options.limit).map(mapAttestation);
+
+    return {
+      attestations,
+      hasMore,
+    };
   }
 }
