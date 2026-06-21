@@ -3,7 +3,7 @@ import tsPlugin from "@typescript-eslint/eslint-plugin";
 import {
   loggerSchemaValidation,
   loggerCallWithObjectRule,
-} from "./src/observability/eslint-plugin-logger-schema.js";
+} from "./src/observability/eslint-plugin-logger-schema.ts";
 
 export default [
   {

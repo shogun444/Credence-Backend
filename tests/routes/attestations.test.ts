@@ -23,7 +23,7 @@ const makeAttestation = (id: number, subjectAddress = SUBJECT): Attestation => (
 describe('attestation routes', () => {
   let app: Express
   let cacheService: {
-    getAttestationsBySubjectPage: ReturnType<typeof vi.fn>
+    getAttestationsBySubjectPaginated: ReturnType<typeof vi.fn>
     invalidateForAttestation: ReturnType<typeof vi.fn>
   }
   let transactionManager: {
@@ -38,7 +38,7 @@ describe('attestation routes', () => {
     setTenantId('test-tenant')
     
     cacheService = {
-      getAttestationsBySubjectPage: vi.fn(),
+      getAttestationsBySubjectPaginated: vi.fn(),
       invalidateForAttestation: vi.fn(),
     }
     outbox = {
@@ -64,60 +64,61 @@ describe('attestation routes', () => {
   })
 
   describe('GET /api/attestations/:address', () => {
-    it('returns a repository-backed page with accurate totals', async () => {
-      cacheService.getAttestationsBySubjectPage.mockResolvedValue({
+    it('returns a repository-backed cursor page with a next cursor when more remain', async () => {
+      cacheService.getAttestationsBySubjectPaginated.mockResolvedValue({
         attestations: [makeAttestation(1), makeAttestation(2)],
-        total: 5,
+        hasMore: true,
       })
 
       const res = await request(app)
-        .get(`/api/attestations/${SUBJECT}?page=2&limit=2`)
+        .get(`/api/attestations/${SUBJECT}?limit=2`)
         .expect(200)
 
-      expect(cacheService.getAttestationsBySubjectPage).toHaveBeenCalledWith(SUBJECT, {
-        offset: 2,
+      expect(cacheService.getAttestationsBySubjectPaginated).toHaveBeenCalledWith(SUBJECT, {
         limit: 2,
+        cursor: undefined,
       })
       expect(res.body).toMatchObject({
         address: SUBJECT,
-        page: 2,
-        limit: 2,
-        offset: 2,
-        total: 5,
-        hasNext: true,
+        page: {
+          limit: 2,
+          hasMore: true,
+        },
       })
-      expect(res.body.attestations).toHaveLength(2)
-      expect(res.body.attestations[0].createdAt).toBe('2025-01-01T00:00:00.000Z')
+      expect(res.body.data).toHaveLength(2)
+      expect(res.body.data[0].createdAt).toBe('2025-01-01T00:00:00.000Z')
+      // A next cursor is emitted because hasMore is true.
+      expect(typeof res.body.page.nextCursor).toBe('string')
     })
 
-    it('returns an empty page beyond the last page while preserving total', async () => {
-      cacheService.getAttestationsBySubjectPage.mockResolvedValue({
+    it('returns an empty page with no next cursor when there are no more results', async () => {
+      cacheService.getAttestationsBySubjectPaginated.mockResolvedValue({
         attestations: [],
-        total: 3,
+        hasMore: false,
       })
 
       const res = await request(app)
-        .get(`/api/attestations/${SUBJECT}?page=100&limit=2`)
+        .get(`/api/attestations/${SUBJECT}?limit=2`)
         .expect(200)
 
-      expect(res.body.attestations).toEqual([])
-      expect(res.body.total).toBe(3)
-      expect(res.body.hasNext).toBe(false)
+      expect(res.body.data).toEqual([])
+      expect(res.body.page.hasMore).toBe(false)
+      expect(res.body.page.nextCursor).toBeNull()
     })
 
     it('normalizes Ethereum addresses before querying cache', async () => {
-      cacheService.getAttestationsBySubjectPage.mockResolvedValue({
+      cacheService.getAttestationsBySubjectPaginated.mockResolvedValue({
         attestations: [],
-        total: 0,
+        hasMore: false,
       })
 
       await request(app)
         .get(`/api/attestations/${MIXED_SUBJECT}`)
         .expect(200)
 
-      expect(cacheService.getAttestationsBySubjectPage).toHaveBeenCalledWith(
+      expect(cacheService.getAttestationsBySubjectPaginated).toHaveBeenCalledWith(
         MIXED_SUBJECT.toLowerCase(),
-        { offset: 0, limit: 20 },
+        { limit: 20, cursor: undefined },
       )
     })
 
@@ -127,7 +128,7 @@ describe('attestation routes', () => {
         .expect(400)
 
       expect(res.body.error).toBe('Validation failed')
-      expect(cacheService.getAttestationsBySubjectPage).not.toHaveBeenCalled()
+      expect(cacheService.getAttestationsBySubjectPaginated).not.toHaveBeenCalled()
     })
   })
 

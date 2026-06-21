@@ -23,6 +23,9 @@ describe('IdempotencyKeySweeper', () => {
   })
 
   afterEach(() => {
+    // Ensure any test that switched to fake timers cannot leak them into the
+    // next test (which would make real setTimeout-based mocks never resolve).
+    vi.useRealTimers()
     vi.clearAllMocks()
   })
 
@@ -30,18 +33,19 @@ describe('IdempotencyKeySweeper', () => {
     it('should count expired keys', async () => {
       const mockQuery = vi.fn()
         .mockResolvedValueOnce({ rows: [{ count: '42' }] }) // count
-        .mockResolvedValueOnce({ rows: [], rowCount: 10 }) // delete batch 1
-        .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // delete batch 2 (done)
+        .mockResolvedValueOnce({ rows: [], rowCount: 10 }) // delete batch 1 (partial)
 
       mockDb = { query: mockQuery } as unknown as Queryable
-      
+
       const sweeper = new IdempotencyKeySweeper(mockDb, { logger })
       const result = await sweeper.run()
 
       expect(result.expiredCount).toBe(42)
       expect(result.deletedCount).toBe(10)
       expect(result.dryRun).toBe(false)
-      expect(mockQuery).toHaveBeenCalledTimes(3)
+      // count query + a single partial delete batch: a batch smaller than
+      // batchSize means the table is drained, so the loop terminates.
+      expect(mockQuery).toHaveBeenCalledTimes(2)
     })
 
     it('should not delete in dry-run mode', async () => {
@@ -156,8 +160,10 @@ describe('IdempotencyKeySweeper', () => {
 
       sweeper.start()
 
-      // Initial run
-      await vi.runAllTimersAsync()
+      // Advance one interval to exercise the immediate run plus one scheduled
+      // tick. (runAllTimersAsync would never terminate against a recurring
+      // setInterval.)
+      await vi.advanceTimersByTimeAsync(1000)
 
       expect(mockQuery).toHaveBeenCalled()
       expect(logger).toHaveBeenCalledWith(
@@ -181,11 +187,16 @@ describe('IdempotencyKeySweeper', () => {
       sweeper.stop()
     })
 
-    it('should stop periodic cleanup', () => {
+    it('should stop periodic cleanup', async () => {
+      const mockQuery = vi.fn().mockResolvedValue({ rows: [{ count: '0' }] })
+      mockDb = { query: mockQuery } as unknown as Queryable
       const sweeper = new IdempotencyKeySweeper(mockDb, { logger })
 
       sweeper.start()
-      expect(sweeper.isRunning()).toBe(false) // After initial run completes
+      // Allow the fire-and-forget initial run to settle.
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(sweeper.isRunning()).toBe(false)
 
       sweeper.stop()
       expect(logger).toHaveBeenCalledWith(

@@ -24,7 +24,7 @@ vi.mock('../../src/services/audit/index.js', async () => {
     ...actual,
     AuditLogService: vi.fn().mockImplementation(function() {
       return {
-        log: vi.fn().mockImplementation(async (entry) => {
+        logAction: vi.fn().mockImplementation(async (entry) => {
           mockAuditLogs.push(entry)
         }),
         getLogs: vi.fn().mockImplementation(async () => {
@@ -202,7 +202,7 @@ describe('Webhook Routes', () => {
       expect(mockAuditLogs).toHaveLength(1)
       expect(mockAuditLogs[0].action).toBe('ROTATE_WEBHOOK_SECRET')
       expect(mockAuditLogs[0].status).toBe('success')
-      expect(mockAuditLogs[0].targetUserId).toBe(SEED_WEBHOOK.id)
+      expect(mockAuditLogs[0].resourceId).toBe(SEED_WEBHOOK.id)
     })
 
     it('two consecutive rotations produce different secrets', async () => {
@@ -247,7 +247,7 @@ describe('Webhook Routes', () => {
       expect(mockAuditLogs).toHaveLength(1)
       expect(mockAuditLogs[0].action).toBe('ROTATE_WEBHOOK_SECRET')
       expect(mockAuditLogs[0].status).toBe('failure')
-      expect(mockAuditLogs[0].targetUserId).toBe('nonexistent-webhook')
+      expect(mockAuditLogs[0].resourceId).toBe('nonexistent-webhook')
     })
 
     it('returns 401 when no Authorization header is provided', async () => {

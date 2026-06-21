@@ -163,13 +163,21 @@ describe('createHorizonListenerProbe', () => {
   it('returns down with stale_heartbeat when heartbeat is old', async () => {
     setHorizonListenerConfigured(true)
     setHorizonListenerRunning(true)
-    recordHorizonListenerHeartbeat()
-    // Use a very short maxStaleMs so the fresh heartbeat is immediately stale
-    const probe = createHorizonListenerProbe(0)
-    const result = await probe()
-    expect(result.status).toBe('down')
-    expect(result.reason).toBe('stale_heartbeat')
-    expect(typeof result.latencyMs).toBe('number')
+    // Use fake timers so the heartbeat is deterministically older than the
+    // (zero) staleness tolerance, rather than relying on sub-millisecond wall
+    // clock timing.
+    vi.useFakeTimers()
+    try {
+      recordHorizonListenerHeartbeat()
+      vi.advanceTimersByTime(1)
+      const probe = createHorizonListenerProbe(0)
+      const result = await probe()
+      expect(result.status).toBe('down')
+      expect(result.reason).toBe('stale_heartbeat')
+      expect(typeof result.latencyMs).toBe('number')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('returns up with latencyMs and heartbeatAgeMs when healthy', async () => {

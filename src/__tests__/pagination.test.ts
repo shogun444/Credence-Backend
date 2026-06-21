@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { encodeCursor, decodeCursor, buildCursorEnvelope, parsePaginationParams, PaginationValidationError } from '../lib/pagination.js'
 import { AttestationsRepository, type Attestation } from '../db/repositories/attestationsRepository.js'
-import Database from 'better-sqlite3'
+import { newDb } from 'pg-mem'
+import { Pool } from 'pg'
 
 describe('Cursor Pagination', () => {
   describe('encodeCursor & decodeCursor', () => {
@@ -139,62 +140,65 @@ describe('Cursor Pagination', () => {
   })
 
   describe('AttestationsRepository cursor pagination', () => {
-    let db: Database.Database
+    let pool: Pool
     let repo: AttestationsRepository
 
-    beforeEach(() => {
-      vi.mock('../../utils/tenantContext.js', () => ({
-        getTenantId: vi.fn(() => 'test-tenant'),
-        setTenantId: vi.fn(),
-      }))
+    // Insert an attestation row directly, returning its generated id.
+    async function insertAttestation(opts: {
+      subjectAddress?: string
+      createdAt?: string
+    } = {}): Promise<number> {
+      const res = await pool.query<{ id: number }>(
+        `INSERT INTO attestations (bond_id, attester_address, subject_address, score, note, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id`,
+        [
+          1,
+          '0xattester',
+          opts.subjectAddress ?? '0xsubject',
+          100,
+          null,
+          opts.createdAt ?? new Date().toISOString(),
+        ],
+      )
+      return Number(res.rows[0].id)
+    }
 
-      db = new Database(':memory:')
-      db.pragma('foreign_keys = ON')
+    beforeEach(async () => {
+      const memDb = newDb()
+      const adapter = memDb.adapters.createPg()
+      pool = new adapter.Pool() as unknown as Pool
 
-      // Create attestations table
-      db.exec(`
+      // attestations schema matching AttestationsRepository's queries.
+      await pool.query(`
         CREATE TABLE attestations (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          bond_id INTEGER NOT NULL,
-          attester_address TEXT NOT NULL,
-          subject_address TEXT NOT NULL,
-          score INTEGER NOT NULL DEFAULT 100,
-          note TEXT,
-          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+          id               SERIAL        PRIMARY KEY,
+          bond_id          INTEGER       NOT NULL,
+          attester_address TEXT          NOT NULL,
+          subject_address  TEXT          NOT NULL,
+          score            INTEGER       NOT NULL DEFAULT 100,
+          note             TEXT,
+          created_at       TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+          updated_at       TIMESTAMPTZ   NOT NULL DEFAULT NOW()
         )
       `)
 
-      repo = new AttestationsRepository(db)
+      // assertTenant() short-circuits when NODE_ENV === 'test' (vitest sets it),
+      // so no tenant context wiring is needed here.
+      repo = new AttestationsRepository(pool)
     })
 
-    afterEach(() => {
-      db.close()
+    afterEach(async () => {
+      await pool.end()
       vi.clearAllMocks()
     })
 
     it('should fetch paginated attestations with cursor', async () => {
-      // Insert test data with controlled timestamps
+      // Insert test data with controlled, strictly-increasing timestamps.
       const baseTime = new Date('2024-01-15T10:00:00Z')
-      const attestations = []
-      
       for (let i = 0; i < 5; i++) {
         const createdAt = new Date(baseTime.getTime() + i * 1000)
-        attestations.push({
-          bond_id: 1,
-          attester_address: '0xattester',
-          subject_address: '0xsubject',
-          score: 100,
-          note: null,
-          created_at: createdAt.toISOString(),
-        })
-      }
-
-      for (const att of attestations) {
-        db.prepare(`
-          INSERT INTO attestations (bond_id, attester_address, subject_address, score, note, created_at)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `).run(att.bond_id, att.attester_address, att.subject_address, att.score, att.note, att.created_at)
+        await insertAttestation({ createdAt: createdAt.toISOString() })
       }
 
       // Fetch first page
@@ -209,12 +213,8 @@ describe('Cursor Pagination', () => {
     })
 
     it('should return hasMore=false on last page', async () => {
-      // Insert 3 attestations
       for (let i = 0; i < 3; i++) {
-        db.prepare(`
-          INSERT INTO attestations (bond_id, attester_address, subject_address, score, note)
-          VALUES (?, ?, ?, ?, ?)
-        `).run(1, '0xattester', '0xsubject', 100, null)
+        await insertAttestation({ createdAt: new Date(Date.now() + i * 1000).toISOString() })
       }
 
       const result = await repo.listBySubjectPaginated('0xsubject', {
@@ -235,13 +235,11 @@ describe('Cursor Pagination', () => {
     })
 
     it('should use stable sort (created_at DESC, id DESC)', async () => {
-      // Insert attestations with same created_at to test secondary sort
+      // Insert attestations with the same created_at to exercise the secondary
+      // sort on id.
       const now = new Date().toISOString()
       for (let i = 0; i < 5; i++) {
-        db.prepare(`
-          INSERT INTO attestations (bond_id, attester_address, subject_address, score, note, created_at)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `).run(1, '0xattester', '0xsubject', 100, null, now)
+        await insertAttestation({ createdAt: now })
       }
 
       const page1 = await repo.listBySubjectPaginated('0xsubject', {
@@ -251,9 +249,9 @@ describe('Cursor Pagination', () => {
       expect(page1.attestations).toHaveLength(3)
       expect(page1.hasMore).toBe(true)
 
-      // All should have same created_at, but different IDs
+      // All should have same created_at, but different IDs in DESC order.
       const ids = page1.attestations.map(a => a.id)
-      expect(ids).toEqual([...ids].sort((a, b) => b - a)) // DESC order
+      expect(ids).toEqual([...ids].sort((a, b) => b - a))
     })
   })
 
