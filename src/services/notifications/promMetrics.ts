@@ -20,7 +20,7 @@ function getCounterMetric(
       help,
       labelNames,
       registers: [promClient.register],
-    })
+    }) as CounterMetric
   } catch {
     return null
   }

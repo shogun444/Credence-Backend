@@ -17,6 +17,7 @@ import { createScheduler } from './jobs/scheduler.js'
 import { keyManager } from './services/keyManager/index.js'
 import { GracefulShutdownManager } from './gracefulShutdown.js'
 import { getInvalidationBus } from './cache/index.js'
+import { createWsSubscriptionServer } from './routes/ws.js'
 
 // Outbox imports
 import { OutboxJob } from "./jobs/outbox.js";

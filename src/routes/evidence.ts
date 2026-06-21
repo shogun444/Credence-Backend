@@ -222,7 +222,10 @@ function handleUploadError(
       })
       return
     }
-    if (err.code === 'LIMIT_FIELD_SIZE') {
+    // `LIMIT_FIELD_SIZE` is emitted by multer at runtime when the `fieldSize`
+    // limit is exceeded, but it is missing from the @types/multer ErrorCode
+    // union; widen to string for the comparison.
+    if ((err.code as string) === 'LIMIT_FIELD_SIZE') {
       evidenceUploadRejectedTotal.inc({ reason: 'field_too_large' })
       res.status(413).json({
         error: 'PayloadTooLarge',

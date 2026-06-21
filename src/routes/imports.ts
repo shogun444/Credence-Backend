@@ -341,7 +341,12 @@ export function createImportsRouter(
       }
 
       const result = await commitImportFile(buffer, importCommitter)
-      if (result.success && 'valid' in result && result.valid === false) {
+      if (!result.success) {
+        sendDryRunError(res, result)
+        return
+      }
+      if (!('committed' in result)) {
+        // Validation failure: rows did not pass dry-run validation.
         res.status(422).json({
           error: 'UnprocessableEntity',
           code: 'ImportValidationFailed',
@@ -351,10 +356,6 @@ export function createImportsRouter(
           errors: result.errors,
           errorsTruncated: result.errorsTruncated,
         })
-        return
-      }
-      if (!result.success) {
-        sendDryRunError(res, result)
         return
       }
 
@@ -403,7 +404,12 @@ export function createImportsRouter(
       }
 
       const result = await commitImportFile(buffer, importCommitter, preset.columnMappings)
-      if (result.success && 'valid' in result && result.valid === false) {
+      if (!result.success) {
+        sendDryRunError(res, result)
+        return
+      }
+      if (!('committed' in result)) {
+        // Validation failure: rows did not pass dry-run validation.
         res.status(422).json({
           error: 'UnprocessableEntity',
           code: 'ImportValidationFailed',
@@ -419,10 +425,6 @@ export function createImportsRouter(
             columnMappings: preset.columnMappings,
           },
         })
-        return
-      }
-      if (!result.success) {
-        sendDryRunError(res, result)
         return
       }
 

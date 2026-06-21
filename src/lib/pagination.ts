@@ -117,7 +117,12 @@ export function parsePaginationParams(
     }
   }
 
-  const rawCursor = typeof query.cursor === 'string' ? query.cursor : null
+  // Treat an empty (or whitespace-only) cursor query param as "no cursor"
+  // rather than an invalid one, so `?cursor=` is ignored gracefully.
+  const rawCursor =
+    typeof query.cursor === 'string' && query.cursor.trim() !== ''
+      ? query.cursor
+      : null
   const decodedCursor = rawCursor ? decodeCursor(rawCursor) : undefined
 
   // Backwards compatibility: allow client to pass offset via ?cursor=10

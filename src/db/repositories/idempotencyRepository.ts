@@ -17,8 +17,14 @@ export interface CreateIdempotencyInput {
   requestHash: string
   responseCode: number
   responseBody: any
+  /** Time-to-live in seconds; persisted to the `ttl_seconds` column. */
   ttlSeconds: number
-  expiresInSeconds: number
+  /**
+   * Optional override for the absolute-expiry computation. Defaults to
+   * `ttlSeconds` when omitted. Both fields express the same TTL; this is kept
+   * for backward compatibility with callers that set it explicitly.
+   */
+  expiresInSeconds?: number
 }
 
 export class IdempotencyRepository {
@@ -50,7 +56,8 @@ export class IdempotencyRepository {
   }
 
   async save(input: CreateIdempotencyInput): Promise<void> {
-    const expiresAt = new Date(Date.now() + input.expiresInSeconds * 1000)
+    const ttlSeconds = input.expiresInSeconds ?? input.ttlSeconds
+    const expiresAt = new Date(Date.now() + ttlSeconds * 1000)
 
     await this.db.query(
       `

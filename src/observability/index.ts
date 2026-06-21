@@ -30,6 +30,7 @@ export {
   incrementOutboxFailed,
   setOutboxPendingGauge,
   incrementOutboxLeaseRenew,
+  incrementOutboxQuarantine,
 } from './outboxMetrics.js'
 
 export {

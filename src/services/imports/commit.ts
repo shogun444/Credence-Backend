@@ -168,7 +168,9 @@ export async function commitImportFile(
   }
 
   if (!dryRun.valid) {
-    return dryRun
+    // Row-level validation failed: surface the dry-run report as a commit
+    // validation failure (no rows are persisted).
+    return { ...dryRun, valid: false }
   }
 
   try {

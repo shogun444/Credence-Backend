@@ -1,4 +1,4 @@
-import helmet from 'helmet'
+import helmet, { type HelmetOptions } from 'helmet'
 import { Request, Response, NextFunction } from 'express'
 
 /**
@@ -96,8 +96,10 @@ export const securityHeadersWithOverride = (
     return securityHeadersMiddleware(req, res, next)
   }
 
-  // Apply helmet with overrides
-  const helmetConfig: Parameters<typeof helmet>[0] = {}
+  // Apply helmet with overrides. Use a mutable HelmetOptions object; helmet's
+  // call signature accepts Readonly<HelmetOptions>, and a mutable value is
+  // assignable to it.
+  const helmetConfig: HelmetOptions = {}
 
   if (overrides.contentSecurityPolicy !== undefined) {
     helmetConfig.contentSecurityPolicy = overrides.contentSecurityPolicy

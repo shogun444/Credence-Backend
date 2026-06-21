@@ -21,7 +21,7 @@ import {
   incrementOutboxLeaseRenew,
   incrementOutboxQuarantine,
 } from '../../observability/index.js'
-import { trace, context, SpanContext, TraceFlags, SpanStatusCode } from '@opentelemetry/api'
+import { trace, context, SpanContext, TraceFlags, SpanStatusCode, createTraceState } from '@opentelemetry/api'
 
 /**
  * Event handler that processes published domain events.
@@ -296,7 +296,7 @@ export class OutboxPublisher {
         traceFlags: TraceFlags.SAMPLED,
       }
       if (event.tracestate) {
-        parentSpanContext.traceState = trace.propagation().traceStateFromString(event.tracestate)
+        parentSpanContext.traceState = createTraceState(event.tracestate)
       }
     }
 

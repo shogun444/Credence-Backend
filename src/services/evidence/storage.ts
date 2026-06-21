@@ -1,6 +1,6 @@
 import crypto from 'crypto'
 import { kekManager } from '../keyManager/index.js'
-import type { EvidenceRecord } from './types.js'
+import type { EvidenceRecord, Role } from './types.js'
 import { createSignedErasureProof } from './erasureProof.js'
 import type { AuditLogService } from '../audit/index.js'
 import { AuditAction } from '../audit/types.js'

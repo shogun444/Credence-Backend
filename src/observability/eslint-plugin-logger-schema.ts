@@ -19,7 +19,6 @@ export const loggerSchemaValidation: Rule.RuleModule = {
     docs: {
       description:
         "Flags raw logger calls with inline objects that bypass schema validation",
-      category: "Security",
       recommended: true,
     },
     messages: {
@@ -97,7 +96,6 @@ export const loggerCallWithObjectRule: Rule.RuleModule = {
     docs: {
       description:
         "Warns about potentially unredacted logger calls with inline objects",
-      category: "Security",
       recommended: false,
     },
     messages: {

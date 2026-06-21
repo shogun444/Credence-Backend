@@ -1,4 +1,5 @@
 import type http from "http";
+import type { Socket } from "net";
 import type { WebSocketServer } from "ws";
 import { setReady } from "./lifecycle.js";
 import { stop as stopListeners } from "./listeners/index.js";
@@ -16,12 +17,12 @@ export interface GracefulShutdownOptions {
 export class GracefulShutdownManager {
   private shuttingDown = false;
   private forceExitTimer: NodeJS.Timeout | null = null;
-  private readonly connections = new Set<http.Socket>();
+  private readonly connections = new Set<Socket>();
   private wss: WebSocketServer | null = null;
 
   constructor(private readonly options: GracefulShutdownOptions = {}) {}
 
-  trackConnection(socket: http.Socket): void {
+  trackConnection(socket: Socket): void {
     this.connections.add(socket);
     socket.once("close", () => this.connections.delete(socket));
   }
@@ -30,20 +31,20 @@ export class GracefulShutdownManager {
     this.options.server = server;
   }
 
-  setOutboxJob(outboxJob: { stop(): Promise<void> } | undefined): void {
-    this.options.outboxJob = outboxJob;
+  setOutboxJob(outboxJob: { stop(): Promise<void> } | null | undefined): void {
+    this.options.outboxJob = outboxJob ?? undefined;
   }
 
-  setScheduler(scheduler: { stop(): void | Promise<void> } | undefined): void {
-    this.options.scheduler = scheduler;
+  setScheduler(scheduler: { stop(): void | Promise<void> } | null | undefined): void {
+    this.options.scheduler = scheduler ?? undefined;
   }
 
   setWss(wss: WebSocketServer | null): void {
     this.wss = wss;
   }
 
-  setInvalidationBus(invalidationBus: { stop(): Promise<void> } | undefined): void {
-    this.options.invalidationBus = invalidationBus;
+  setInvalidationBus(invalidationBus: { stop(): Promise<void> } | null | undefined): void {
+    this.options.invalidationBus = invalidationBus ?? undefined;
   }
 
   async shutdown(signal: string): Promise<void> {

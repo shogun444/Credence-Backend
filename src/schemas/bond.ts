@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { z } from './openapi.js'
 import { addressSchema } from './address.js'
 
 /**

@@ -232,12 +232,12 @@ export function requireApiKey(requiredScope: ApiScope) {
     }
 
     let grantedScopes = API_KEYS[apiKey]
-    let dbKey: any = null
+    let dbKey: StoredApiKey | null = null
 
     if (!grantedScopes) {
       dbKey = validateApiKey(apiKey)
       if (dbKey) {
-        grantedScopes = dbKey.scopes.map(s => {
+        grantedScopes = dbKey.scopes.map((s): ApiScope => {
           if (s === 'full') return ApiScope.ENTERPRISE
           if (s === 'read') return ApiScope.PUBLIC
           return s as ApiScope

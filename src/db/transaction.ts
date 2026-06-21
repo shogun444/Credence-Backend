@@ -98,7 +98,13 @@ function createBudgetedClient(
       }
     }
 
-    return await client.query(...args);
+    // `client.query` is heavily overloaded; none of its overloads accept a
+    // spread of `any[]`. Invoke through a rest-parameter call signature so the
+    // proxied arguments forward verbatim to the underlying client.
+    const query = client.query.bind(client) as (
+      ...queryArgs: unknown[]
+    ) => Promise<unknown>;
+    return await query(...args);
   };
 
   // Create a proxy or object with the same interface as PoolClient, overriding query

@@ -17,7 +17,10 @@ import {
   trustScoreNotifier,
   type TrustScoreUpdate,
 } from "../services/reputation/notifier.js";
-import { PgApiKeyRepository } from "../repositories/apiKeyRepository.js";
+import {
+  InMemoryApiKeyRepository,
+  type ApiKeyRepository,
+} from "../repositories/apiKeyRepository.js";
 import type { Pool } from "pg";
 import { URL } from "url";
 
@@ -64,14 +67,17 @@ interface SubscriptionContext {
 export function createWsSubscriptionServer(
   pool: Pool,
   config: WsSubscriptionConfig = {},
-  apiKeyRepo?: any,
+  apiKeyRepo?: ApiKeyRepository,
 ): WebSocketServer {
+  void pool;
   const rateLimitPerSec = config.rateLimitPerSec ?? 100;
   const backpressureThreshold = config.backpressureThreshold ?? 1024 * 1024;
   const shutdownGracePeriodMs = config.shutdownGracePeriodMs ?? 5000;
 
-  // Use injected repo for testing, otherwise create new instance
-  const repo = apiKeyRepo ?? new PgApiKeyRepository(pool);
+  // Use injected repo for testing, otherwise fall back to the default
+  // (in-memory) implementation. A PostgreSQL-backed adapter can be injected
+  // here once it is wired in.
+  const repo: ApiKeyRepository = apiKeyRepo ?? new InMemoryApiKeyRepository();
   const wss = new WebSocketServer({ noServer: true });
   const connections = new Set<WebSocket>();
 
@@ -109,15 +115,16 @@ export function createWsSubscriptionServer(
       }
 
       // Validate API key and get tenant
-      let tenantId: string | null = null;
-      let apiKeyId: string | null = null;
+      let tenantId: string;
+      let apiKeyId: string;
       try {
-        const keyRecord = await repo.findByKey(apiKey);
-        if (!keyRecord) {
+        const keyRecord = repo.validate(apiKey);
+        if (!keyRecord || !keyRecord.active) {
           socket.destroy();
           return;
         }
-        tenantId = keyRecord.tenant_id;
+        // The key owner identifies the tenant scope for this subscription.
+        tenantId = keyRecord.ownerId;
         apiKeyId = keyRecord.id;
       } catch (error) {
         socket.destroy();
@@ -130,7 +137,7 @@ export function createWsSubscriptionServer(
       // exposes tenant association. For now, we trust the API key's tenant scope.
 
       // Accept the connection
-      wss.completeUpgrade(request, socket, head, (ws: WebSocket) => {
+      wss.handleUpgrade(request, socket, head, (ws: WebSocket) => {
         handleConnection(ws, {
           identity: identity.toLowerCase(),
           apiKeyId,
