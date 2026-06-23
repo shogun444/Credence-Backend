@@ -20,6 +20,7 @@ import { keyManager } from './services/keyManager/index.js'
 import { GracefulShutdownManager } from './gracefulShutdown.js'
 import { getInvalidationBus } from './cache/index.js'
 import { createWsSubscriptionServer } from './routes/ws.js'
+import { impersonationService } from './services/impersonation/index.js'
 
 // Outbox imports
 import { OutboxJob } from "./jobs/outbox.js";
@@ -121,8 +122,21 @@ if (process.env.NODE_ENV !== "test") {
         lockKey: 'cron:settlement-reconciliation'
       })
 
+      const impersonationCleanupScheduler = createScheduler({
+        run: async () => {
+          const removed = await impersonationService.cleanupExpiredTokens()
+          return { removed }
+        }
+      }, {
+        cronExpression: '0 * * * *', // hourly
+        runOnStart: false,
+        logger: console.log,
+        lockKey: 'cron:impersonation-cleanup'
+      })
+
       refreshScheduler.start()
       reconcilerScheduler.start()
+      impersonationCleanupScheduler.start()
 
       scheduler = {
         stop() {
