@@ -168,6 +168,12 @@ describe('E2E State Sync Integration: Horizon -> DB -> Trust -> Cache -> API', (
     )`)
   }, 60000)
 
+  beforeEach(async () => {
+    await db.pool.query('DELETE FROM attestations')
+    await db.pool.query('DELETE FROM identities')
+    sharedStorage.clear()
+  })
+
   afterAll(async () => {
     // Clean up tenant context
     setTenantId(null)
