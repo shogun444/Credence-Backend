@@ -29,6 +29,15 @@ function getRegisteredRoutes() {
     { path: '/api/orgs/:orgId/policies', method: 'get' },
     { path: '/api/analytics', method: 'get' },
     { path: '/api/payouts', method: 'post' },
+    { path: '/api/governance/slash-requests', method: 'post' },
+    { path: '/api/governance/slash-requests', method: 'get' },
+    { path: '/api/governance/slash-requests/:id', method: 'get' },
+    { path: '/api/governance/slash-requests/:id/votes', method: 'post' },
+    { path: '/api/disputes', method: 'post' },
+    { path: '/api/disputes/:id', method: 'get' },
+    { path: '/api/disputes/:id/review', method: 'post' },
+    { path: '/api/disputes/:id/resolve', method: 'post' },
+    { path: '/api/disputes/:id/dismiss', method: 'post' },
   ];
   return routes.filter(r => !isAdminRoute(r.path));
 }

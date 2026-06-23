@@ -23,6 +23,24 @@
       "value": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
       "type": "string",
       "description": "Default Ethereum address used in requests. Override per-request or update this variable."
+    },
+    {
+      "key": "bearerToken",
+      "value": "",
+      "type": "string",
+      "description": "API key sent as `Authorization: Bearer <bearerToken>`. Required by all /api/governance and /api/disputes endpoints."
+    },
+    {
+      "key": "slashRequestId",
+      "value": "a1b2c3d4e5f6a7b8",
+      "type": "string",
+      "description": "Slash request ID used in governance vote/get requests. Override with an ID returned from the create request."
+    },
+    {
+      "key": "disputeId",
+      "value": "5f8d0d55-1c1b-4e9a-9b1a-4e6f6f6f6f6f",
+      "type": "string",
+      "description": "Dispute ID used in dispute review/resolve/dismiss/get requests. Override with an ID returned from the submit request."
     }
   ],
   "item": [
@@ -271,6 +289,422 @@
                   "raw": "{{baseUrl}}/api/bond/0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
                   "host": ["{{baseUrl}}"],
                   "path": ["api", "bond", "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Governance",
+      "description": "Slash requests and governance votes. All requests require `Authorization: Bearer {{bearerToken}}`.",
+      "item": [
+        {
+          "name": "Create slash request",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/governance/slash-requests",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "governance", "slash-requests"]
+            },
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{bearerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"targetAddress\": \"GDUKMGUGDZQK6YHYA5Z6AY2G4XDSZPSZ3SW5UN3ARVMO6QSRDWP5YLEX\",\n  \"reason\": \"Repeated SLA violations on delivery commitments\",\n  \"requestedBy\": \"validator-12\",\n  \"threshold\": 3,\n  \"totalSigners\": 5\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Opens a new slash request awaiting governance votes."
+          },
+          "response": [
+            {
+              "name": "201 – slash request created",
+              "status": "Created",
+              "code": 201,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"id\": \"a1b2c3d4e5f6a7b8\",\n  \"targetAddress\": \"GDUKMGUGDZQK6YHYA5Z6AY2G4XDSZPSZ3SW5UN3ARVMO6QSRDWP5YLEX\",\n  \"reason\": \"Repeated SLA violations on delivery commitments\",\n  \"requestedBy\": \"validator-12\",\n  \"createdAt\": \"2024-01-15T09:00:00.000Z\",\n  \"votes\": [],\n  \"status\": \"pending\",\n  \"threshold\": 3,\n  \"totalSigners\": 5\n}",
+              "_postman_previewlanguage": "json",
+              "originalRequest": {
+                "method": "POST",
+                "url": {
+                  "raw": "{{baseUrl}}/api/governance/slash-requests",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "governance", "slash-requests"]
+                }
+              }
+            },
+            {
+              "name": "400 – validation error",
+              "status": "Bad Request",
+              "code": 400,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"error\": \"BadRequest\",\n  \"message\": \"totalSigners must be >= threshold\"\n}",
+              "_postman_previewlanguage": "json",
+              "originalRequest": {
+                "method": "POST",
+                "url": {
+                  "raw": "{{baseUrl}}/api/governance/slash-requests",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "governance", "slash-requests"]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "List slash requests",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/governance/slash-requests?status=pending&page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "governance", "slash-requests"],
+              "query": [
+                { "key": "status", "value": "pending" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            },
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{bearerToken}}" }
+            ],
+            "description": "Lists slash requests, optionally filtered by status, with pagination."
+          },
+          "response": [
+            {
+              "name": "200 – paginated list",
+              "status": "OK",
+              "code": 200,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"data\": [],\n  \"page\": 1,\n  \"limit\": 20,\n  \"total\": 0,\n  \"hasNext\": false\n}",
+              "_postman_previewlanguage": "json",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{baseUrl}}/api/governance/slash-requests?status=pending&page=1&limit=20",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "governance", "slash-requests"]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get slash request",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/governance/slash-requests/{{slashRequestId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "governance", "slash-requests", "{{slashRequestId}}"]
+            },
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{bearerToken}}" }
+            ],
+            "description": "Returns a single slash request by ID."
+          },
+          "response": [
+            {
+              "name": "404 – not found",
+              "status": "Not Found",
+              "code": 404,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"error\": \"NotFound\",\n  \"message\": \"Slash request not found\"\n}",
+              "_postman_previewlanguage": "json",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{baseUrl}}/api/governance/slash-requests/{{slashRequestId}}",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "governance", "slash-requests", "{{slashRequestId}}"]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Vote on slash request",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/governance/slash-requests/{{slashRequestId}}/votes",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "governance", "slash-requests", "{{slashRequestId}}", "votes"]
+            },
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{bearerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"voterId\": \"validator-3\",\n  \"choice\": \"approve\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Casts an approve/reject vote on a pending slash request. Each voter may vote at most once per request."
+          },
+          "response": [
+            {
+              "name": "201 – vote recorded",
+              "status": "Created",
+              "code": 201,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"slashRequestId\": \"a1b2c3d4e5f6a7b8\",\n  \"voterId\": \"validator-3\",\n  \"choice\": \"approve\",\n  \"approveCount\": 2,\n  \"rejectCount\": 0,\n  \"status\": \"pending\"\n}",
+              "_postman_previewlanguage": "json",
+              "originalRequest": {
+                "method": "POST",
+                "url": {
+                  "raw": "{{baseUrl}}/api/governance/slash-requests/{{slashRequestId}}/votes",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "governance", "slash-requests", "{{slashRequestId}}", "votes"]
+                }
+              }
+            },
+            {
+              "name": "409 – already voted / already resolved",
+              "status": "Conflict",
+              "code": 409,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"error\": \"Conflict\",\n  \"message\": \"Voter validator-3 has already voted on this request\"\n}",
+              "_postman_previewlanguage": "json",
+              "originalRequest": {
+                "method": "POST",
+                "url": {
+                  "raw": "{{baseUrl}}/api/governance/slash-requests/{{slashRequestId}}/votes",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "governance", "slash-requests", "{{slashRequestId}}", "votes"]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Disputes",
+      "description": "Dispute filing and lifecycle management (submit → under_review → resolved/dismissed/expired). All requests require `Authorization: Bearer {{bearerToken}}`.",
+      "item": [
+        {
+          "name": "Submit dispute",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/disputes",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "disputes"]
+            },
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{bearerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filedBy\": \"GDUKMGUGDZQK6YHYA5Z6AY2G4XDSZPSZ3SW5UN3ARVMO6QSRDWP5YLEX\",\n  \"respondent\": \"GBVFLWXYZ6JJ7TUSU6QDJ6DOY4J5G5VHGJWSCMHL7QSAHRDEQU3EXFW2\",\n  \"reason\": \"Goods delivered did not match the agreed specification\",\n  \"evidence\": [\"ipfs://bafybeih...\"],\n  \"deadlineMs\": 86400000\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Files a new dispute between two Stellar addresses with supporting evidence."
+          },
+          "response": [
+            {
+              "name": "201 – dispute submitted",
+              "status": "Created",
+              "code": 201,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"id\": \"5f8d0d55-1c1b-4e9a-9b1a-4e6f6f6f6f6f\",\n  \"filedBy\": \"GDUKMGUGDZQK6YHYA5Z6AY2G4XDSZPSZ3SW5UN3ARVMO6QSRDWP5YLEX\",\n  \"respondent\": \"GBVFLWXYZ6JJ7TUSU6QDJ6DOY4J5G5VHGJWSCMHL7QSAHRDEQU3EXFW2\",\n  \"reason\": \"Goods delivered did not match the agreed specification\",\n  \"evidence\": [\"ipfs://bafybeih...\"],\n  \"status\": \"pending\",\n  \"createdAt\": \"2024-01-15T09:00:00.000Z\",\n  \"deadline\": \"2024-01-16T09:00:00.000Z\",\n  \"resolution\": null\n}",
+              "_postman_previewlanguage": "json",
+              "originalRequest": {
+                "method": "POST",
+                "url": {
+                  "raw": "{{baseUrl}}/api/disputes",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "disputes"]
+                }
+              }
+            },
+            {
+              "name": "400 – validation error",
+              "status": "Bad Request",
+              "code": 400,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"error\": \"BadRequest\",\n  \"message\": \"Invalid dispute: reason must be at least 10 characters\"\n}",
+              "_postman_previewlanguage": "json",
+              "originalRequest": {
+                "method": "POST",
+                "url": {
+                  "raw": "{{baseUrl}}/api/disputes",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "disputes"]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get dispute",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/disputes/{{disputeId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "disputes", "{{disputeId}}"]
+            },
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{bearerToken}}" }
+            ],
+            "description": "Returns a single dispute by ID."
+          },
+          "response": [
+            {
+              "name": "404 – not found",
+              "status": "Not Found",
+              "code": 404,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"error\": \"NotFound\",\n  \"message\": \"Dispute not found\"\n}",
+              "_postman_previewlanguage": "json",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{baseUrl}}/api/disputes/{{disputeId}}",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "disputes", "{{disputeId}}"]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mark dispute under review",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/disputes/{{disputeId}}/review",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "disputes", "{{disputeId}}", "review"]
+            },
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{bearerToken}}" }
+            ],
+            "description": "Transitions a pending dispute to under_review."
+          },
+          "response": [
+            {
+              "name": "422 – invalid transition",
+              "status": "Unprocessable Entity",
+              "code": 422,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"error\": \"Invalid dispute state transition\",\n  \"code\": \"invalid_dispute_transition\",\n  \"error_code\": \"invalid_dispute_transition\",\n  \"message\": \"Invalid transition from \\\"resolved\\\" to \\\"under_review\\\"\"\n}",
+              "_postman_previewlanguage": "json",
+              "originalRequest": {
+                "method": "POST",
+                "url": {
+                  "raw": "{{baseUrl}}/api/disputes/{{disputeId}}/review",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "disputes", "{{disputeId}}", "review"]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Resolve dispute",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/disputes/{{disputeId}}/resolve",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "disputes", "{{disputeId}}", "resolve"]
+            },
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{bearerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"resolution\": \"Respondent agreed to a partial refund of 20%\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Transitions a pending or under_review dispute to resolved."
+          },
+          "response": [
+            {
+              "name": "200 – dispute resolved",
+              "status": "OK",
+              "code": 200,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"id\": \"5f8d0d55-1c1b-4e9a-9b1a-4e6f6f6f6f6f\",\n  \"status\": \"resolved\",\n  \"resolution\": \"Respondent agreed to a partial refund of 20%\"\n}",
+              "_postman_previewlanguage": "json",
+              "originalRequest": {
+                "method": "POST",
+                "url": {
+                  "raw": "{{baseUrl}}/api/disputes/{{disputeId}}/resolve",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "disputes", "{{disputeId}}", "resolve"]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Dismiss dispute",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/disputes/{{disputeId}}/dismiss",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "disputes", "{{disputeId}}", "dismiss"]
+            },
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{bearerToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Insufficient evidence provided\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Transitions a pending or under_review dispute to dismissed."
+          },
+          "response": [
+            {
+              "name": "200 – dispute dismissed",
+              "status": "OK",
+              "code": 200,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"id\": \"5f8d0d55-1c1b-4e9a-9b1a-4e6f6f6f6f6f\",\n  \"status\": \"dismissed\",\n  \"resolution\": \"Insufficient evidence provided\"\n}",
+              "_postman_previewlanguage": "json",
+              "originalRequest": {
+                "method": "POST",
+                "url": {
+                  "raw": "{{baseUrl}}/api/disputes/{{disputeId}}/dismiss",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "disputes", "{{disputeId}}", "dismiss"]
                 }
               }
             }
