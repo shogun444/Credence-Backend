@@ -117,6 +117,8 @@ export async function runMigration(options: MigrationOptions): Promise<Migration
       count: options.count,
       file: options.file,
       verbose: options.verbose ?? true,
+      // Only numbered migration files (e.g. 001_initial_schema.ts); skip tooling/templates.
+      ignorePattern: '^(?!\\d+_).*',
       // Log applied migrations
       log: (message: string) => {
         if (options.verbose !== false) {
@@ -178,6 +180,7 @@ export async function getMigrationStatus(): Promise<{
       direction: 'up',
       dryRun: true,
       verbose: false,
+      ignorePattern: '^(?!\\d+_).*',
       log: () => {}, // Suppress logs
     })
 
