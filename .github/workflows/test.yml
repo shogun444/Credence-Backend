@@ -38,9 +38,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build TypeScript
-        run: npm run build
-
       - name: Wait for PostgreSQL
         run: |
           until pg_isready -h localhost -p 5432 -U credence; do
