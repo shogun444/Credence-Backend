@@ -277,6 +277,33 @@
           ]
         }
       ]
+    },
+    {
+      "name": "Disputes",
+      "description": "Manage governance dispute workflows and access restricted to the tenant.",
+      "item": [
+        {
+          "name": "List disputes",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/disputes?status=pending&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "disputes"],
+              "query": [
+                { "key": "status", "value": "pending", "description": "Optional: valid status" },
+                { "key": "limit", "value": "20", "description": "Optional: integer" },
+                { "key": "cursor", "value": "", "description": "Optional: cursor string" }
+              ]
+            },
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{apiKey}}" }
+            ],
+            "description": "Returns disputes for the authenticated caller."
+          },
+          "response": []
+        }
+      ]
     }
   ]
 }

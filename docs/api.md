@@ -512,6 +512,49 @@ curl -i -N \
 
 ---
 
+### `GET /api/disputes`
+
+Returns persisted disputes for the authenticated caller's tenant. Results are ordered newest first and paginated with cursor limit.
+
+```
+GET /api/disputes?status=pending&limit=20
+```
+
+**Query parameters**
+
+| Parameter | Type   | Description                                                               |
+| --------- | ------ | ------------------------------------------------------------------------- |
+| `status`  | string | (Optional) Filter by dispute status (e.g. `pending`, `under_review`, etc) |
+| `limit`   | int    | (Optional) Number of results to return (default 20, max 100)              |
+| `cursor`  | string | (Optional) Pagination cursor                                              |
+
+**Response `200`**
+
+```json
+{
+  "data": [
+    {
+      "id": "abc-123",
+      "filedBy": "0x222...",
+      "respondent": "0x333...",
+      "reason": "failure to deliver",
+      "evidence": ["tx:abc"],
+      "status": "pending",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "deadline": "2024-01-08T00:00:00.000Z",
+      "resolution": null
+    }
+  ],
+  "page": {
+    "nextCursor": "base64encodedcursor_abc123",
+    "hasMore": true,
+    "limit": 20
+  }
+}
+```
+
+---
+
 ## Rate limiting
 
 All `/api/*` routes are rate-limited using fixed-window counters stored in Redis.
