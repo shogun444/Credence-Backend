@@ -18,6 +18,8 @@ import { SettlementReconciler } from './jobs/settlementReconciler.js'
 import { createScheduler } from './jobs/scheduler.js'
 import { keyManager } from './services/keyManager/index.js'
 import { GracefulShutdownManager } from './gracefulShutdown.js'
+import { FailedInboundEventsSweeper } from './jobs/failedInboundEventsSweeper.js'
+import { loadFailedInboundSweeperConfig } from './config/retention.js'
 import { getInvalidationBus } from './cache/index.js'
 import { createWsSubscriptionServer } from './routes/ws.js'
 import { impersonationService } from './services/impersonation/index.js'
@@ -36,6 +38,7 @@ export default app;
 let server: http.Server | null = null;
 let scheduler: AnalyticsRefreshScheduler | null = null;
 let outboxJob: OutboxJob | null = null;
+let failedInboundSweeper: FailedInboundEventsSweeper | null = null;
 let shutdownManager: GracefulShutdownManager | null = null;
 let wss: ReturnType<typeof createWsSubscriptionServer> | null = null;
 let invalidationBus: ReturnType<typeof getInvalidationBus> | null = null;
@@ -138,10 +141,15 @@ if (process.env.NODE_ENV !== "test") {
       reconcilerScheduler.start()
       impersonationCleanupScheduler.start()
 
+      const failedInboundSweeperConfig = loadFailedInboundSweeperConfig()
+      failedInboundSweeper = new FailedInboundEventsSweeper(pool, failedInboundSweeperConfig)
+      failedInboundSweeper.start()
+
       scheduler = {
         stop() {
           refreshScheduler.stop()
           reconcilerScheduler.stop()
+          failedInboundSweeper?.stop()
         },
         isJobRunning() {
           return refreshScheduler.isJobRunning() || reconcilerScheduler.isJobRunning()
