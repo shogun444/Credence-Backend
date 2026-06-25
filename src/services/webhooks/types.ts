@@ -1,9 +1,7 @@
 /**
  * Webhook event types for bond lifecycle.
  */
-export type WebhookEventType = 'bond.created' | 'bond.slashed' | 'bond.withdrawn'
-  | 'attestation.created'
-  | 'attestation.revoked'
+export type WebhookEventType = 'bond.created' | 'bond.slashed' | 'bond.withdrawn' | 'attestation.added' | 'attestation.revoked' | 'score.updated' | 'attestation.added' | 'attestation.revoked' | 'score.updated'
 
 /**
  * Webhook configuration for a registered endpoint.
@@ -58,18 +56,19 @@ export interface WebhookPayload {
   event: WebhookEventType
   /** ISO timestamp when event occurred. */
   timestamp: string
-  /** Event data (identity state, or a list of items for chunked payloads). */
-  data: Record<string, unknown> | unknown[]
-  /** Chunk ID for chunked payloads (optional). */
-  chunkId?: string
-  /** Index of this chunk (0-based). */
-  chunkIndex?: number
-  /** Total number of chunks. */
-  totalChunks?: number
-  /** Flag indicating payload was truncated. */
-  payloadTruncated?: boolean
-  /** URL to fetch remaining data (optional). */
-  paginationUrl?: string
+  /** Event data (identity state). */
+  data: {
+    address: string
+    bondedAmount: string
+    bondStart: number | null
+    bondDuration: number | null
+    active: boolean
+    attestationId?: string
+    verifier?: string
+    weight?: number
+    claim?: string
+    score?: number
+  }
 }
 
 /**

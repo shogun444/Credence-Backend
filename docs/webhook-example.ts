@@ -2,6 +2,10 @@
  * Example: Webhook integration with identity state sync via transactional outbox.
  */
 
+import { createIdentityStateSync } from '../src/listeners/identityStateSync.js'
+import { createWebhookService } from '../src/services/webhooks/service.js'
+import { MemoryWebhookStore } from '../src/services/webhooks/memoryStore.js'
+import { emitWebhookForStateChange, emitWebhookForScoreChange, emitWebhookForAttestationChange } from '../src/listeners/webhookIntegration.js'
 import type { Queryable } from '../src/db/repositories/queryable.js'
 import { emitWebhookForStateChange } from '../src/listeners/webhookIntegrationOutbox.js'
 import type { ContractReader, IdentityState, IdentityStateStore } from '../src/listeners/types.js'

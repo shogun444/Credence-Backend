@@ -1,5 +1,7 @@
 import type { Queryable } from '../db/repositories/queryable.js'
 import type { IdentityState } from './types.js'
+import type { WebhookEventType } from '../services/webhooks/index.js'
+import { detectEventType } from './webhookDetection.js'
 import { outboxEmitter } from '../db/outbox/emitter.js'
 import { detectEventType } from './webhookEventDetection.js'
 
@@ -35,3 +37,38 @@ export async function emitWebhookForStateChange(
     })
   }
 }
+export async function emitWebhookForAttestationChange(
+  db: any,
+  eventType: 'attestation.added' | 'attestation.revoked',
+  payload: { address: string; attestationId?: string; verifier?: string; weight?: number; claim?: string }
+): Promise<void> {
+  await outboxEmitter.emit(db, {
+    aggregateType: 'identity',
+    aggregateId: payload.address,
+    eventType,
+    payload: {
+      address: payload.address,
+      ...payload
+    },
+  })
+}
+
+export async function emitWebhookForScoreChange(
+  db: any,
+  address: string,
+  oldScore: number | null,
+  newScore: number
+): Promise<void> {
+  if (oldScore !== newScore) {
+    await outboxEmitter.emit(db, {
+      aggregateType: 'identity',
+      aggregateId: address,
+      eventType: 'score.updated',
+      payload: {
+        address,
+        score: newScore
+      },
+    })
+  }
+}
+

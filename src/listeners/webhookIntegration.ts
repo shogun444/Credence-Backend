@@ -1,8 +1,7 @@
 import type { IdentityState } from './types.js'
-import type { WebhookService } from '../services/webhooks/index.js'
-import { detectEventType } from './webhookEventDetection.js'
+import { detectEventType } from './webhookDetection.js'
+import type { WebhookService, WebhookEventType } from '../services/webhooks/index.js'
 
-export { detectEventType } from './webhookEventDetection.js'
 
 /**
  * Emit webhook for identity state change via direct service call.
@@ -29,3 +28,28 @@ export async function emitWebhookForStateChange(
     })
   }
 }
+export async function emitWebhookForAttestationChange(
+  webhookService: WebhookService,
+  eventType: 'attestation.added' | 'attestation.revoked',
+  payload: { address: string; attestationId?: string; verifier?: string; weight?: number; claim?: string }
+): Promise<void> {
+  await webhookService.emit(eventType, {
+    address: payload.address,
+    ...payload
+  })
+}
+
+export async function emitWebhookForScoreChange(
+  webhookService: WebhookService,
+  address: string,
+  oldScore: number | null,
+  newScore: number
+): Promise<void> {
+  if (oldScore !== newScore) {
+    await webhookService.emit('score.updated', {
+      address,
+      score: newScore
+    })
+  }
+}
+
