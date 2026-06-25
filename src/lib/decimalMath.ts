@@ -231,6 +231,26 @@ export function roundToScale(
 }
 
 /**
+ * Return true iff value is a valid decimal string representing a number
+ * strictly greater than zero (positive, non-zero, non-negative).
+ *
+ * @example
+ * isValidPositiveDecimal("0.000000001") // true
+ * isValidPositiveDecimal("0")           // false
+ * isValidPositiveDecimal("-1")          // false
+ * isValidPositiveDecimal("abc")         // false
+ */
+export function isValidPositiveDecimal(value: string): boolean {
+  try {
+    const { negative, intStr, fracStr } = parseDecimalString(value)
+    if (negative) return false
+    return BigInt((intStr || '0') + (fracStr || '')) > 0n
+  } catch {
+    return false
+  }
+}
+
+/**
  * Multiply two decimal strings exactly, returning a decimal string.
  *
  * No rounding is applied. The result scale equals the sum of the two
