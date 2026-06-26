@@ -469,6 +469,218 @@ registry.registerPath({
   },
 });
 
+// Feature Flags Admin API
+// All routes require Bearer auth + admin role.
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/admin/feature-flags',
+  summary: 'List feature flags',
+  description:
+    'Returns all feature flags with their effective state (override, per-tenant rollout, global rollout, or default) for the caller\'s tenant.',
+  tags: ['Feature Flags'],
+  security: bearerAuth,
+  responses: {
+    200: {
+      description: 'Feature flag list',
+      content: { 'application/json': { schema: schemas.flagListResponseSchema } },
+    },
+    401: {
+      description: 'Missing or invalid bearer token',
+      content: { 'application/json': { schema: schemas.flagErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/admin/feature-flags',
+  summary: 'Create a feature flag',
+  description: 'Creates a new feature flag. The flag key must be unique across the system.',
+  tags: ['Feature Flags'],
+  security: bearerAuth,
+  request: {
+    body: {
+      required: true,
+      content: { 'application/json': { schema: schemas.createFlagBodySchema } },
+    },
+  },
+  responses: {
+    201: {
+      description: 'Feature flag created',
+      content: { 'application/json': { schema: schemas.flagResponseEnvelopeSchema } },
+    },
+    400: {
+      description: 'Validation error (e.g. invalid key format, rolloutPercent out of range)',
+      content: { 'application/json': { schema: schemas.flagErrorResponseSchema } },
+    },
+    401: {
+      description: 'Missing or invalid bearer token',
+      content: { 'application/json': { schema: schemas.flagErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/api/admin/feature-flags/{key}',
+  summary: 'Update a feature flag',
+  description: 'Updates one or more fields on an existing feature flag. All fields are optional.',
+  tags: ['Feature Flags'],
+  security: bearerAuth,
+  request: {
+    params: schemas.flagKeyParamsSchema,
+    body: {
+      required: true,
+      content: { 'application/json': { schema: schemas.updateFlagBodySchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Feature flag updated',
+      content: { 'application/json': { schema: schemas.flagResponseEnvelopeSchema } },
+    },
+    400: {
+      description: 'Validation error or no fields provided',
+      content: { 'application/json': { schema: schemas.flagErrorResponseSchema } },
+    },
+    401: {
+      description: 'Missing or invalid bearer token',
+      content: { 'application/json': { schema: schemas.flagErrorResponseSchema } },
+    },
+    404: {
+      description: 'Feature flag not found',
+      content: { 'application/json': { schema: schemas.flagErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/admin/feature-flags/{key}/overrides',
+  summary: 'Set a per-tenant boolean override',
+  description:
+    'Creates or updates a boolean on/off override for a specific tenant. ' +
+    'A boolean override always takes the highest precedence, superseding any per-tenant rollout or global rollout.',
+  tags: ['Feature Flags'],
+  security: bearerAuth,
+  request: {
+    params: schemas.flagKeyParamsSchema,
+    body: {
+      required: true,
+      content: { 'application/json': { schema: schemas.setOverrideBodySchema } },
+    },
+  },
+  responses: {
+    201: {
+      description: 'Override created or updated',
+      content: { 'application/json': { schema: schemas.overrideResponseEnvelopeSchema } },
+    },
+    400: {
+      description: 'Validation error',
+      content: { 'application/json': { schema: schemas.flagErrorResponseSchema } },
+    },
+    401: {
+      description: 'Missing or invalid bearer token',
+      content: { 'application/json': { schema: schemas.flagErrorResponseSchema } },
+    },
+    404: {
+      description: 'Feature flag not found',
+      content: { 'application/json': { schema: schemas.flagErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'delete',
+  path: '/api/admin/feature-flags/{key}/overrides/{tenantId}',
+  summary: 'Remove a per-tenant boolean override',
+  description:
+    'Removes a boolean override for a specific tenant. ' +
+    'After removal the tenant falls back to per-tenant rollout (if configured), global rollout, or defaultEnabled.',
+  tags: ['Feature Flags'],
+  security: bearerAuth,
+  request: { params: schemas.flagKeyTenantParamsSchema },
+  responses: {
+    200: {
+      description: 'Override removed',
+      content: { 'application/json': { schema: z.object({ success: z.literal(true) }) } },
+    },
+    401: {
+      description: 'Missing or invalid bearer token',
+      content: { 'application/json': { schema: schemas.flagErrorResponseSchema } },
+    },
+    404: {
+      description: 'Override not found',
+      content: { 'application/json': { schema: schemas.flagErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/admin/feature-flags/{key}/tenant-rollouts',
+  summary: 'Set a per-tenant rollout percentage',
+  description:
+    'Creates or updates a per-tenant rollout percentage for a flag. ' +
+    'Allows different tenants to receive the flag at different rollout speeds. ' +
+    'Sticky user-id bucketing (SHA-256 hash of flagKey:userId) still applies within the tenant\'s percentage window. ' +
+    'A boolean override (if present) always takes precedence over this setting.',
+  tags: ['Feature Flags'],
+  security: bearerAuth,
+  request: {
+    params: schemas.flagKeyParamsSchema,
+    body: {
+      required: true,
+      content: { 'application/json': { schema: schemas.setTenantRolloutBodySchema } },
+    },
+  },
+  responses: {
+    201: {
+      description: 'Per-tenant rollout created or updated',
+      content: { 'application/json': { schema: schemas.tenantRolloutResponseEnvelopeSchema } },
+    },
+    400: {
+      description: 'Validation error (e.g. rolloutPercent out of range)',
+      content: { 'application/json': { schema: schemas.flagErrorResponseSchema } },
+    },
+    401: {
+      description: 'Missing or invalid bearer token',
+      content: { 'application/json': { schema: schemas.flagErrorResponseSchema } },
+    },
+    404: {
+      description: 'Feature flag not found',
+      content: { 'application/json': { schema: schemas.flagErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'delete',
+  path: '/api/admin/feature-flags/{key}/tenant-rollouts/{tenantId}',
+  summary: 'Remove a per-tenant rollout percentage',
+  description:
+    'Removes a per-tenant rollout percentage. ' +
+    'After removal the tenant falls back to the global rollout percent (or defaultEnabled if that is also 0).',
+  tags: ['Feature Flags'],
+  security: bearerAuth,
+  request: { params: schemas.flagKeyTenantParamsSchema },
+  responses: {
+    200: {
+      description: 'Per-tenant rollout removed',
+      content: { 'application/json': { schema: z.object({ success: z.literal(true) }) } },
+    },
+    401: {
+      description: 'Missing or invalid bearer token',
+      content: { 'application/json': { schema: schemas.flagErrorResponseSchema } },
+    },
+    404: {
+      description: 'Per-tenant rollout not found',
+      content: { 'application/json': { schema: schemas.flagErrorResponseSchema } },
+    },
+  },
+});
+
 const generator = new OpenApiGeneratorV3(registry.definitions);
 const document = generator.generateDocument({
   openapi: '3.0.0',
