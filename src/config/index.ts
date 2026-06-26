@@ -352,7 +352,18 @@ export const envSchema = z.object({
     .default('10')
     .transform(Number)
     .pipe(z.number().int().min(0).max(1000)),
-})
+}).refine(
+  (data) => {
+    if (data.NODE_ENV === 'production' && data.CORS_ORIGIN === '*') {
+      return false
+    }
+    return true
+  },
+  {
+    message: 'Wildcard CORS origin (*) is prohibited in production environment',
+    path: ['CORS_ORIGIN'],
+  }
+)
 
 export type Env = z.infer<typeof envSchema>
 

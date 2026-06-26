@@ -245,3 +245,39 @@ When an upstream dependency contains a vulnerability that cannot be immediately 
    npx tsx scripts/security-gate.ts --file audit-report.json --threshold high --ignore-cve CVE-YYYY-XXXXX --ignore-pkg package-name
    ```
 3. Document the bypass justification, the expiration date of the exception, and the signed security ticket reference in the commit message and PR description.
+
+---
+
+## CORS Origin Policy
+
+### Approved Origin Configuration
+In non-production environments (such as `development` or `test`), the wildcard origin (`*`) is allowed by default for convenience in local testing. 
+
+In the production environment, the `CORS_ORIGIN` environment variable must be explicitly configured to one or more approved, fully-qualified domain names (FQDNs). Wildcard origins (`*`) are strictly blocked at the configuration level during startup validation to enforce security.
+
+Example of an approved single-origin configuration in production:
+```ini
+CORS_ORIGIN=https://app.credence.io
+```
+
+Example of multiple allowed origins:
+```ini
+CORS_ORIGIN=https://app.credence.io,https://admin.credence.io
+```
+
+### Why Wildcard Origins are Prohibited in Production
+Allowing wildcard origins (`*`) in a production environment introduces severe security risks:
+1. **Cross-Origin Resource Sharing (CORS) Bypass**: The browser's same-origin policy is disabled for all websites. A malicious website visited by a user could send requests to the Credence API on behalf of that user.
+2. **Credential Exposure Risk**: Wildcard CORS prevents the secure usage of HTTP credentials (cookies, client certificates, or authorization headers) in cross-origin requests. Restricting origins enforces a strict trust boundary.
+3. **Compliance Requirements**: Regulatory frameworks and security standards (e.g., SOC2, ISO 27001) prohibit wildcard resource access for authenticated APIs to prevent unauthorized data exfiltration.
+
+### Deployment Guidance
+When deploying to production, operators must configure allowed origins:
+1. Identify all trusted client applications that need to communicate directly with the API.
+2. Set the `CORS_ORIGIN` environment variable to those trusted origins in the production environment (e.g., Kubernetes ConfigMaps, AWS ECS task definitions, or environment managers).
+3. If `CORS_ORIGIN` is not set, or is explicitly set to `*`, the startup validation will fail and the application will refuse to boot, preventing insecure deployment configurations.
+4. When validation fails, the application prints a typed, actionable error message to standard error before exiting:
+   ```
+   ❌ Environment validation failed:
+     - CORS_ORIGIN: Wildcard CORS origin (*) is prohibited in production environment
+   ```
