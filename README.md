@@ -134,19 +134,20 @@ All configuration is driven by environment variables. Copy `.env.example` to `.e
 
 ## Scripts
 
-| Command                  | Description                               |
-| ------------------------ | ----------------------------------------- |
-| `npm run dev`            | Start with tsx watch                      |
-| `npm run build`          | Compile TypeScript                        |
-| `npm start`              | Run compiled `dist/`                      |
-| `npm run lint`           | Run ESLint                                |
-| `npm test`               | Run test suite (vitest)                   |
-| `npm run test:watch`     | Run tests in watch mode                   |
-| `npm run test:coverage`  | Run tests with coverage                   |
-| `npm run migrate:create` | Create new migration in `src/migrations/` |
-| `npm run migrate:dev`    | Build and run pending migrations (local)  |
-| `npm run migrate`        | Run pending migrations (CI/production)    |
-| `npm run migrate:down`   | Rollback last migration                   |
+| Command                   | Description                                |
+| ------------------------- | ------------------------------------------ |
+| `npm run dev`             | Start with tsx watch                       |
+| `npm run build`           | Compile TypeScript                         |
+| `npm start`               | Run compiled `dist/`                       |
+| `npm run lint`            | Run ESLint                                 |
+| `npm test`                | Run test suite (vitest)                    |
+| `npm run test:watch`      | Run tests in watch mode                    |
+| `npm run test:coverage`   | Run tests with coverage                    |
+| `npm run migrate:create`  | Create new migration in `src/migrations/`  |
+| `npm run migrate:dev`     | Build and run pending migrations (local)   |
+| `npm run migrate`         | Run pending migrations (CI/production)     |
+| `npm run migrate:down`    | Rollback last migration                    |
+| `npm run migrate:dry-run` | Preview pending migrations without running |
 
 ## API (current)
 
