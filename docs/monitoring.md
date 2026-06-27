@@ -715,6 +715,25 @@ kubectl apply -f k8s/grafana-dashboard-configmap.yaml
        cpu: "500m"
    ```
 
+### Metrics Endpoint Security
+
+The `/metrics` endpoint is unauthenticated by design (Prometheus does not send auth headers) but can be restricted to cluster-internal IPs via the `METRICS_ALLOWED_CIDRS` environment variable.
+
+```
+METRICS_ALLOWED_CIDRS=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+```
+
+When set, only requests originating from IPs within the listed CIDR ranges can reach `/metrics`. All other IPs receive `403 Forbidden`.
+
+When unset (default), `/metrics` is open — suitable for local development.
+
+For Kubernetes deployments, set this to the cluster pod CIDR in `k8s/configmap.yaml`:
+
+```yaml
+data:
+  METRICS_ALLOWED_CIDRS: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+```
+
 
 ## Testing
 

@@ -352,6 +352,9 @@ export const envSchema = z.object({
     .default('10')
     .transform(Number)
     .pipe(z.number().int().min(0).max(1000)),
+
+  // Metrics endpoint CIDR whitelist (comma-separated IPv4 CIDRs)
+  METRICS_ALLOWED_CIDRS: z.string().optional(),
 })
 
 export type Env = z.infer<typeof envSchema>
@@ -473,6 +476,7 @@ export interface Config {
   credits: {
     defaultMonthly: number
   }
+  metricsAllowedCidrs: string[] | undefined
 }
 
 function parseCostWeights(raw: string): Record<string, number> {
@@ -651,6 +655,9 @@ function mapEnvToConfig(env: Env): Config {
     credits: {
       defaultMonthly: env.DEFAULT_MONTHLY_CREDITS,
     },
+    metricsAllowedCidrs: env.METRICS_ALLOWED_CIDRS
+      ? env.METRICS_ALLOWED_CIDRS.split(',').map(s => s.trim()).filter(Boolean)
+      : undefined,
   }
 
   if (env.HORIZON_URL) {
