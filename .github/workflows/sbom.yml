@@ -1,0 +1,40 @@
+name: SBOM
+
+# Defence-in-depth supply-chain gate: every merge must produce a well-formed,
+# non-empty CycloneDX SBOM and pass validation. Fails closed if generation
+# breaks or the inventory is malformed/empty.
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  sbom:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate SBOM
+        run: npm run sbom:generate
+
+      - name: Validate SBOM
+        run: npm run sbom:check
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.json
+          if-no-files-found: error

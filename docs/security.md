@@ -204,16 +204,32 @@ The pipeline runs two complementary scanning engines:
 
 A custom-built, fully unit-tested severity gate engine (`scripts/security-gate.ts`) parses the output of both tools. If any vulnerability is found matching or exceeding the configured severity threshold (default is **HIGH**), the script prints the offending advisory details and exits with `1`, **failing the build**.
 
+### SBOM Generation & Validation (every merge)
+
+`.github/workflows/sbom.yml` runs on every push and pull request to `main` and `develop`. It generates a CycloneDX SBOM (`npm run sbom:generate`) and then validates it (`npm run sbom:check`), uploading the result as a build artifact.
+
+Validation is enforced by `scripts/sbom-validate.ts`, which checks the document against a minimal CycloneDX schema (format marker, spec version, non-empty component inventory) using Zod. It returns a typed discriminated-union result — `SCHEMA_MISMATCH`, `EMPTY_COMPONENTS`, or `INVALID_JSON` — and the CLI exits with `1`, **failing the build**, rather than panicking or emitting a generic error.
+
+**Threat mitigated:** without a generated-and-validated SBOM gate on every merge, a compromised or accidentally-introduced (transitive) dependency can enter the production dependency graph with no machine-readable inventory and no build gate that fails closed. The gate guarantees every merged commit ships a verifiable component inventory.
+
+Developers can run the same checks locally:
+
+```bash
+npm run sbom:generate
+npm run sbom:check
+```
+
 ### Pull Request SBOM Component Diff
 
 `.github/workflows/sbom-diff.yml` runs on pull requests to `main` and `develop`. The workflow checks out both the pull request head and base commit, generates CycloneDX SBOM files for each dependency graph, and runs `scripts/sbom-component-diff.js` to compare their component lists.
 
 The workflow posts or updates a single pull request comment named **SBOM component changes**. The comment shows the count and names of components added by the pull request and components removed relative to the base branch, giving operators and downstream consumers a quick supply-chain review surface without downloading SBOM artifacts.
 
-Developers can run the same local smoke check with:
+Developers can run the same local component-diff smoke check with:
 
 ```bash
-npm run sbom:check
+npm run sbom:generate
+npm run sbom:diff
 ```
 
 ### Response SLA Matrix
