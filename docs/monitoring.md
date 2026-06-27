@@ -14,9 +14,11 @@ The monitoring stack consists of:
 The health router separates liveness and readiness:
 
 - `GET /api/health/live`: process-level liveness only (always `200` while process is up).
-- `GET /api/health` and `GET /api/health/ready`: deep readiness checks for Postgres, Redis, Horizon listener heartbeat, and outbox publisher lease heartbeat.
+- `GET /api/health` and `GET /api/health/ready`: deep readiness checks for Postgres, Redis, Horizon listener heartbeat, and outbox publisher state.
 
-Readiness responses include per-check status (`up`, `down`, `not_configured`) and safe diagnostic fields (for example heartbeat age) without exposing secrets such as connection strings.
+The outbox readiness check now also evaluates the age of the oldest unpublished outbox event. If that lag exceeds `60` seconds, readiness fails and the dependency is reported as `down` with a `lagSeconds` value.
+
+Readiness responses include per-check status (`up`, `down`, `not_configured`) and safe diagnostic fields (for example heartbeat age or outbox lag) without exposing secrets such as connection strings.
 
 ## Architecture
 
@@ -825,6 +827,7 @@ open http://localhost:3001
 | `bulk_verification_batch_size` | Histogram | - | Batch size distribution |
 | `rate_limit_hits_total` | Counter | tenant, tier | Total rate limit hits grouped by tenant and tier |
 | `identity_sync_duration_seconds` | Histogram | operation | Identity sync duration |
+| `queue_backlog_size` | Gauge | topic | Current number of items pending in the backlog queue per topic; sampled every 15 s |
 
 ### Default Metrics (from prom-client)
 
